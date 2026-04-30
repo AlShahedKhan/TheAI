@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ChatController;
 use App\Http\Controllers\Teams\TeamInvitationController;
 use App\Http\Middleware\EnsureTeamMembership;
 use Illuminate\Support\Facades\Route;
@@ -15,6 +16,8 @@ Route::prefix('{current_team}')
 
 Route::middleware(['auth'])->group(function () {
     Route::get('invitations/{invitation}/accept', [TeamInvitationController::class, 'accept'])->name('invitations.accept');
+    Route::get('chat', [ChatController::class, 'index'])->name('chat.index');
+    Route::post('chat', [ChatController::class, 'store'])->name('chat.store');
 });
 
 require __DIR__.'/settings.php';
