@@ -22,7 +22,7 @@ class GeminiAgent implements Agent, Conversational, HasStructuredOutput, HasTool
 {
     use Promptable;
 
-    public function __construct(public User $user) {}
+    public function __construct(public User $user, public ?string $conversationId = null) {}
 
     /**
      * Get the instructions that the agent should follow.
@@ -40,6 +40,7 @@ class GeminiAgent implements Agent, Conversational, HasStructuredOutput, HasTool
     public function messages(): iterable
     {
         return History::where('user_id', $this->user->id)
+            ->when($this->conversationId, fn ($query) => $query->where('conversation_id', $this->conversationId))
             ->latest()
             ->limit(50)
             ->get()

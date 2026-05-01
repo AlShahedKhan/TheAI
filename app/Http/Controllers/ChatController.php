@@ -3,11 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Ai\Agents\GeminiAgent;
+use App\Jobs\GenerateConversationTitle;
+use App\Models\AgentConversation;
 use App\Models\History;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -17,16 +18,65 @@ class ChatController extends Controller
 {
     public function index(Request $request): Response
     {
+        /** @var User $user */
         $user = $request->user();
 
+        $conversation = $request->boolean('new')
+            ? null
+            : AgentConversation::query()
+                ->where('user_id', $user->id)
+                ->latest('updated_at')
+                ->first();
+
+        return $this->renderChat($user, $conversation);
+    }
+
+    public function show(Request $request, AgentConversation $conversation): Response
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $this->authorizeConversation($conversation, $user);
+
+        return $this->renderChat($user, $conversation);
+    }
+
+    public function update(Request $request, AgentConversation $conversation): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $this->authorizeConversation($conversation, $user);
+
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:100'],
+        ]);
+
+        $conversation->update([
+            'title' => trim(preg_replace('/\s+/', ' ', $validated['title'])),
+        ]);
+
+        return back();
+    }
+
+    private function renderChat(User $user, ?AgentConversation $conversation): Response
+    {
+        $conversations = AgentConversation::query()
+            ->where('user_id', $user->id)
+            ->latest('updated_at')
+            ->limit(30)
+            ->get(['id', 'title', 'updated_at']);
+
         return Inertia::render('chat/index', [
-            'messages' => History::query()
-                ->where('user_id', $user?->id)
-                ->latest()
-                ->limit(50)
-                ->get(['id', 'role', 'content', 'created_at'])
-                ->reverse()
-                ->values(),
+            'conversations' => $conversations,
+            'activeConversation' => $conversation?->only(['id', 'title']),
+            'messages' => $conversation
+                ? $conversation->messages()
+                    ->where('user_id', $user->id)
+                    ->latest('created_at')
+                    ->limit(50)
+                    ->get(['id', 'role', 'content', 'created_at'])
+                    ->reverse()
+                    ->values()
+                : [],
         ]);
     }
 
@@ -34,15 +84,25 @@ class ChatController extends Controller
     {
         $validated = $request->validate([
             'message' => ['required', 'string', 'max:4000'],
+            'conversation_id' => ['nullable', 'string'],
         ]);
 
         /** @var User $user */
         $user = $request->user();
-        $conversationId = $this->conversationIdFor($user);
+        $isNewConversation = empty($validated['conversation_id']);
+        $conversation = $this->conversationFor($user, $validated['message'], $validated['conversation_id'] ?? null);
+
+        if ($isNewConversation) {
+            GenerateConversationTitle::dispatchAfterResponse(
+                $conversation->id,
+                $validated['message'],
+                $conversation->title,
+            );
+        }
 
         History::create([
             'id' => (string) Str::uuid(),
-            'conversation_id' => $conversationId,
+            'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'agent' => GeminiAgent::class,
             'role' => 'user',
@@ -54,11 +114,11 @@ class ChatController extends Controller
             'meta' => '{}',
         ]);
 
-        $response = GeminiAgent::make(user: $user)->prompt($validated['message']);
+        $response = GeminiAgent::make(user: $user, conversationId: $conversation->id)->prompt($validated['message']);
 
         History::create([
             'id' => (string) Str::uuid(),
-            'conversation_id' => $conversationId,
+            'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'agent' => GeminiAgent::class,
             'role' => 'assistant',
@@ -72,30 +132,42 @@ class ChatController extends Controller
             'meta' => json_encode($response->meta),
         ]);
 
-        return back();
+        $conversation->touch();
+
+        return redirect()->route('chat.show', $conversation);
     }
 
-    private function conversationIdFor(User $user): string
+    private function conversationFor(User $user, string $message, ?string $conversationId): AgentConversation
     {
-        $conversation = DB::table('agent_conversations')
-            ->where('user_id', $user->id)
-            ->where('title', 'Gemini Chat')
-            ->first();
+        if ($conversationId) {
+            $conversation = AgentConversation::query()
+                ->where('user_id', $user->id)
+                ->whereKey($conversationId)
+                ->firstOrFail();
 
-        if ($conversation) {
-            return $conversation->id;
+            return $conversation;
         }
 
-        $id = (string) Str::uuid();
-
-        DB::table('agent_conversations')->insert([
-            'id' => $id,
+        return AgentConversation::create([
+            'id' => (string) Str::uuid(),
             'user_id' => $user->id,
-            'title' => 'Gemini Chat',
-            'created_at' => now(),
-            'updated_at' => now(),
+            'title' => $this->titleFromMessage($message),
         ]);
+    }
 
-        return $id;
+    private function titleFromMessage(string $message): string
+    {
+        $title = trim(preg_replace('/\s+/', ' ', $message));
+
+        if ($title === '') {
+            return 'New chat';
+        }
+
+        return Str::limit($title, 60);
+    }
+
+    private function authorizeConversation(AgentConversation $conversation, User $user): void
+    {
+        abort_unless((int) $conversation->user_id === $user->id, 404);
     }
 }

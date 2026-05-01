@@ -18,6 +18,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('invitations/{invitation}/accept', [TeamInvitationController::class, 'accept'])->name('invitations.accept');
     Route::get('chat', [ChatController::class, 'index'])->name('chat.index');
     Route::post('chat', [ChatController::class, 'store'])->name('chat.store');
+    Route::get('chat/{conversation}', [ChatController::class, 'show'])->name('chat.show');
+    Route::patch('chat/{conversation}', [ChatController::class, 'update'])->name('chat.update');
 });
 
 require __DIR__.'/settings.php';
