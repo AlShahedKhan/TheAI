@@ -20,4 +20,5 @@ class ChatTitleAgent implements Agent
     {
         return 'Generate concise chat titles. Return only the title, with no quotes, markdown, punctuation-only text, or explanation.';
     }
+    // 
 }
