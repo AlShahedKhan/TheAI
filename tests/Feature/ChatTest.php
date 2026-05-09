@@ -33,6 +33,9 @@ class ChatTest extends TestCase
                 ->component('chat/index')
                 ->where('activeConversation.id', $conversation->id)
                 ->where('activeConversation.title', 'Planning')
+                ->where('activeConversation.model', 'gemini-3-flash-preview')
+                ->where('defaultModel', 'gemini-3-flash-preview')
+                ->has('modelOptions', 6)
                 ->has('conversations', 1)
                 ->has('messages', 0)
             );
@@ -51,6 +54,8 @@ class ChatTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('chat/index')
                 ->where('activeConversation', null)
+                ->where('defaultModel', 'gemini-3-flash-preview')
+                ->has('modelOptions', 6)
                 ->has('conversations', 0)
                 ->has('messages', 0)
             );
@@ -61,9 +66,7 @@ class ChatTest extends TestCase
     public function test_first_message_creates_conversation_with_auto_title(): void
     {
         Bus::fake();
-        GeminiAgent::fake([
-            ['feedback' => 'Hello from Gemini.', 'score' => 10],
-        ]);
+        GeminiAgent::fake(['Hello from Gemini.']);
 
         $user = User::factory()->create();
 
@@ -71,6 +74,7 @@ class ChatTest extends TestCase
             ->actingAs($user)
             ->post(route('chat.store'), [
                 'message' => '   Build a launch checklist for Friday   ',
+                'model' => 'gemini-2.5-flash',
             ]);
 
         $conversation = AgentConversation::query()->firstOrFail();
@@ -87,6 +91,7 @@ class ChatTest extends TestCase
             'id' => $conversation->id,
             'user_id' => $user->id,
             'title' => 'Build a launch checklist for Friday',
+            'model' => 'gemini-2.5-flash',
         ]);
 
         $this->assertDatabaseHas('agent_conversation_messages', [
@@ -100,8 +105,10 @@ class ChatTest extends TestCase
             'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'role' => 'assistant',
-            'content' => json_encode(['feedback' => 'Hello from Gemini.', 'score' => 10]),
+            'content' => 'Hello from Gemini.',
         ]);
+
+        GeminiAgent::assertPrompted(fn ($prompt) => $prompt->model === 'gemini-2.5-flash');
     }
 
     public function test_ai_title_job_updates_the_fallback_title(): void
@@ -146,9 +153,7 @@ class ChatTest extends TestCase
 
     public function test_message_can_be_appended_to_existing_conversation(): void
     {
-        GeminiAgent::fake([
-            ['feedback' => 'Follow up answer.', 'score' => 8],
-        ]);
+        GeminiAgent::fake(['Follow up answer.']);
 
         $user = User::factory()->create();
         $conversation = $this->conversationFor($user, 'Existing chat');
@@ -159,13 +164,36 @@ class ChatTest extends TestCase
             ->post(route('chat.store'), [
                 'conversation_id' => $conversation->id,
                 'message' => 'Continue this chat',
+                'model' => 'gemini-3.1-pro-preview',
             ]);
 
         $response->assertRedirect(route('chat.show', $conversation));
 
         $this->assertDatabaseCount('agent_conversations', 2);
+        $this->assertDatabaseHas('agent_conversations', [
+            'id' => $conversation->id,
+            'model' => 'gemini-3.1-pro-preview',
+        ]);
         $this->assertEquals(2, History::where('conversation_id', $conversation->id)->count());
         $this->assertEquals(0, History::where('conversation_id', $otherConversation->id)->count());
+    }
+
+    public function test_chat_model_must_be_allowed(): void
+    {
+        GeminiAgent::fake()->preventStrayPrompts();
+
+        $user = User::factory()->create();
+
+        $response = $this
+            ->actingAs($user)
+            ->post(route('chat.store'), [
+                'message' => 'Use a made up model',
+                'model' => 'gemini-not-real',
+            ]);
+
+        $response->assertSessionHasErrors('model');
+        $this->assertDatabaseCount('agent_conversations', 0);
+        GeminiAgent::assertNeverPrompted();
     }
 
     public function test_users_cannot_open_post_to_or_rename_another_users_conversation(): void
@@ -186,6 +214,7 @@ class ChatTest extends TestCase
             ->post(route('chat.store'), [
                 'conversation_id' => $conversation->id,
                 'message' => 'Let me in',
+                'model' => 'gemini-3-flash-preview',
             ])
             ->assertNotFound();
 
@@ -247,6 +276,7 @@ class ChatTest extends TestCase
             'id' => (string) Str::uuid(),
             'user_id' => $user->id,
             'title' => $title,
+            'model' => 'gemini-3-flash-preview',
         ]);
     }
 }

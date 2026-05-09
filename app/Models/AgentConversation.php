@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['id', 'user_id', 'title'])]
+#[Fillable(['id', 'user_id', 'title', 'model'])]
 class AgentConversation extends Model
 {
     protected $table = 'agent_conversations';

@@ -22,7 +22,14 @@ import { Label } from '@/components/ui/label';
 type Conversation = {
     id: string;
     title: string;
+    model: string;
     updated_at?: string;
+};
+
+type ModelOption = {
+    value: string;
+    label: string;
+    description: string;
 };
 
 type ChatMessage = {
@@ -35,6 +42,8 @@ type ChatMessage = {
 type Props = {
     conversations: Conversation[];
     activeConversation: Conversation | null;
+    modelOptions: ModelOption[];
+    defaultModel: string;
     messages: ChatMessage[];
 };
 
@@ -67,10 +76,13 @@ function displayContent(content: string) {
 export default function ChatIndex({
     conversations,
     activeConversation,
+    modelOptions,
+    defaultModel,
     messages,
 }: Props) {
     const [renameOpen, setRenameOpen] = useState(false);
     const pageTitle = activeConversation?.title ?? 'New chat';
+    const selectedModel = activeConversation?.model ?? defaultModel;
 
     return (
         <>
@@ -207,7 +219,21 @@ export default function ChatIndex({
                                             value={activeConversation.id}
                                         />
                                     )}
-                                    <div className="flex-1">
+                                    <div className="flex flex-1 flex-col gap-2">
+                                        <select
+                                            name="model"
+                                            defaultValue={selectedModel}
+                                            className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:max-w-xs"
+                                        >
+                                            {modelOptions.map((model) => (
+                                                <option
+                                                    key={model.value}
+                                                    value={model.value}
+                                                >
+                                                    {model.label}
+                                                </option>
+                                            ))}
+                                        </select>
                                         <textarea
                                             name="message"
                                             rows={2}

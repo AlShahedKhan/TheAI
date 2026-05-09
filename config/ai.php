@@ -95,6 +95,45 @@ return [
         'gemini' => [
             'driver' => 'gemini',
             'key' => env('GEMINI_API_KEY'),
+            'models' => [
+                'text' => [
+                    'default' => env('GEMINI_DEFAULT_MODEL', 'gemini-3-flash-preview'),
+                    'cheapest' => 'gemini-3.1-flash-lite-preview',
+                    'smartest' => 'gemini-3.1-pro-preview',
+                ],
+            ],
+            'chat_models' => [
+                [
+                    'value' => 'gemini-3-flash-preview',
+                    'label' => 'Gemini 3 Flash',
+                    'description' => 'Balanced speed and quality',
+                ],
+                [
+                    'value' => 'gemini-3.1-pro-preview',
+                    'label' => 'Gemini 3.1 Pro',
+                    'description' => 'Best for deeper reasoning',
+                ],
+                [
+                    'value' => 'gemini-3.1-flash-lite-preview',
+                    'label' => 'Gemini 3.1 Flash-Lite',
+                    'description' => 'Fastest and most cost-efficient',
+                ],
+                [
+                    'value' => 'gemini-2.5-flash',
+                    'label' => 'Gemini 2.5 Flash',
+                    'description' => 'Stable general-purpose model',
+                ],
+                [
+                    'value' => 'gemini-2.5-pro',
+                    'label' => 'Gemini 2.5 Pro',
+                    'description' => 'Stable high-intelligence model',
+                ],
+                [
+                    'value' => 'gemini-2.5-flash-lite',
+                    'label' => 'Gemini 2.5 Flash-Lite',
+                    'description' => 'Stable low-cost model',
+                ],
+            ],
         ],
 
         'groq' => [

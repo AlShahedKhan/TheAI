@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use Laravel\Ai\Responses\StructuredAgentResponse;
@@ -67,7 +68,9 @@ class ChatController extends Controller
 
         return Inertia::render('chat/index', [
             'conversations' => $conversations,
-            'activeConversation' => $conversation?->only(['id', 'title']),
+            'activeConversation' => $conversation?->only(['id', 'title', 'model']),
+            'modelOptions' => $this->modelOptions(),
+            'defaultModel' => $this->defaultModel(),
             'messages' => $conversation
                 ? $conversation->messages()
                     ->where('user_id', $user->id)
@@ -85,12 +88,13 @@ class ChatController extends Controller
         $validated = $request->validate([
             'message' => ['required', 'string', 'max:4000'],
             'conversation_id' => ['nullable', 'string'],
+            'model' => ['required', 'string', Rule::in($this->allowedModels())],
         ]);
 
         /** @var User $user */
         $user = $request->user();
         $isNewConversation = empty($validated['conversation_id']);
-        $conversation = $this->conversationFor($user, $validated['message'], $validated['conversation_id'] ?? null);
+        $conversation = $this->conversationFor($user, $validated['message'], $validated['model'], $validated['conversation_id'] ?? null);
 
         if ($isNewConversation) {
             GenerateConversationTitle::dispatchAfterResponse(
@@ -114,7 +118,7 @@ class ChatController extends Controller
             'meta' => '{}',
         ]);
 
-        $response = GeminiAgent::make(user: $user, conversationId: $conversation->id)->prompt($validated['message']);
+        $response = GeminiAgent::make(user: $user, conversationId: $conversation->id)->prompt($validated['message'], model: $conversation->model);
 
         History::create([
             'id' => (string) Str::uuid(),
@@ -137,13 +141,15 @@ class ChatController extends Controller
         return redirect()->route('chat.show', $conversation);
     }
 
-    private function conversationFor(User $user, string $message, ?string $conversationId): AgentConversation
+    private function conversationFor(User $user, string $message, string $model, ?string $conversationId): AgentConversation
     {
         if ($conversationId) {
             $conversation = AgentConversation::query()
                 ->where('user_id', $user->id)
                 ->whereKey($conversationId)
                 ->firstOrFail();
+
+            $conversation->update(['model' => $model]);
 
             return $conversation;
         }
@@ -152,7 +158,25 @@ class ChatController extends Controller
             'id' => (string) Str::uuid(),
             'user_id' => $user->id,
             'title' => $this->titleFromMessage($message),
+            'model' => $model,
         ]);
+    }
+
+    private function modelOptions(): array
+    {
+        return config('ai.providers.gemini.chat_models', []);
+    }
+
+    private function allowedModels(): array
+    {
+        return collect($this->modelOptions())
+            ->pluck('value')
+            ->all();
+    }
+
+    private function defaultModel(): string
+    {
+        return config('ai.providers.gemini.models.text.default', 'gemini-3-flash-preview');
     }
 
     private function titleFromMessage(string $message): string
