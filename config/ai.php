@@ -134,6 +134,38 @@ return [
                     'description' => 'Stable low-cost model',
                 ],
             ],
+            'video_models' => [
+                [
+                    'value' => 'veo-3.1-generate-preview',
+                    'label' => 'Veo 3.1 Preview',
+                    'description' => 'Highest quality with audio',
+                ],
+                [
+                    'value' => 'veo-3.1-fast-generate-preview',
+                    'label' => 'Veo 3.1 Fast Preview',
+                    'description' => 'Faster generation with audio',
+                ],
+                [
+                    'value' => 'veo-3.1-lite-generate-preview',
+                    'label' => 'Veo 3.1 Lite Preview',
+                    'description' => 'Lower-cost video with audio',
+                ],
+                [
+                    'value' => 'veo-3.0-generate-001',
+                    'label' => 'Veo 3',
+                    'description' => 'Stable high-quality video with audio',
+                ],
+                [
+                    'value' => 'veo-3.0-fast-generate-001',
+                    'label' => 'Veo 3 Fast',
+                    'description' => 'Stable fast video with audio',
+                ],
+                [
+                    'value' => 'veo-2.0-generate-001',
+                    'label' => 'Veo 2',
+                    'description' => 'Stable video generation',
+                ],
+            ],
         ],
 
         'groq' => [
