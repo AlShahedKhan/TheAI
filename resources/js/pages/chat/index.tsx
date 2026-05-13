@@ -8,6 +8,7 @@ import {
     LoaderCircle,
     MessageCircle,
     Plus,
+    RefreshCcw,
     SendHorizontal,
     Sparkles,
     User,
@@ -125,10 +126,12 @@ function MarkdownLite({ content }: { content: string }) {
 function MessageRow({
     message,
     copied,
+    onRegenerate,
     onCopy,
 }: {
     message: ChatMessage;
     copied: boolean;
+    onRegenerate?: () => void;
     onCopy: () => void;
 }) {
     const isUser = message.role === 'user';
@@ -171,6 +174,18 @@ function MessageRow({
                         {copied ? <Check /> : <Copy />}
                         {copied ? 'Copied' : 'Copy'}
                     </Button>
+                    {!isUser && onRegenerate && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 opacity-0 transition-opacity group-hover:opacity-100"
+                            onClick={onRegenerate}
+                        >
+                            <RefreshCcw />
+                            Regenerate
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -195,6 +210,11 @@ export default function ChatIndex({
     const [selectedModel, setSelectedModel] = useState(
         activeConversation?.model ?? defaultModel,
     );
+    const [regenerateMessage, setRegenerateMessage] =
+        useState<ChatMessage | null>(null);
+    const [regenerateModel, setRegenerateModel] = useState(
+        activeConversation?.model ?? defaultModel,
+    );
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const pageTitle = activeConversation?.title ?? 'New chat';
@@ -207,6 +227,7 @@ export default function ChatIndex({
 
     useEffect(() => {
         setSelectedModel(activeConversation?.model ?? defaultModel);
+        setRegenerateModel(activeConversation?.model ?? defaultModel);
         setDraft('');
     }, [activeConversation?.id, activeConversation?.model, defaultModel]);
 
@@ -214,8 +235,31 @@ export default function ChatIndex({
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages.length]);
 
-    const copyMessage = (message: ChatMessage) => {
-        navigator.clipboard.writeText(message.content);
+    const copyMessage = async (message: ChatMessage) => {
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(message.content);
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = message.content;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+        } catch {
+            const textarea = document.createElement('textarea');
+            textarea.value = message.content;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+
         setCopiedMessageId(message.id);
         window.setTimeout(() => setCopiedMessageId(null), 1500);
     };
@@ -346,6 +390,16 @@ export default function ChatIndex({
                                     key={message.id}
                                     message={message}
                                     copied={copiedMessageId === message.id}
+                                    onRegenerate={
+                                        message.role === 'assistant'
+                                            ? () => {
+                                                  setRegenerateMessage(message);
+                                                  setRegenerateModel(
+                                                      selectedModel,
+                                                  );
+                                              }
+                                            : undefined
+                                    }
                                     onCopy={() => copyMessage(message)}
                                 />
                             ))}
@@ -490,6 +544,105 @@ export default function ChatIndex({
                                             disabled={processing}
                                         >
                                             Save
+                                        </Button>
+                                    </DialogFooter>
+                                </>
+                            )}
+                        </Form>
+                    </DialogContent>
+                </Dialog>
+            )}
+
+            {activeConversation && regenerateMessage && (
+                <Dialog
+                    open={Boolean(regenerateMessage)}
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            setRegenerateMessage(null);
+                        }
+                    }}
+                >
+                    <DialogContent>
+                        <Form
+                            action={`/chat/${activeConversation.id}/messages/${regenerateMessage.id}/regenerate`}
+                            method="post"
+                            className="space-y-6"
+                            onSuccess={() => setRegenerateMessage(null)}
+                        >
+                            {({ errors, processing }) => (
+                                <>
+                                    <DialogHeader>
+                                        <DialogTitle>
+                                            Regenerate response
+                                        </DialogTitle>
+                                    </DialogHeader>
+
+                                    <input
+                                        type="hidden"
+                                        name="model"
+                                        value={regenerateModel}
+                                    />
+
+                                    <div className="grid gap-2">
+                                        {modelOptions.map((model) => {
+                                            const badge = modelBadge(
+                                                model.value,
+                                            );
+                                            const BadgeIcon = badge.icon;
+
+                                            return (
+                                                <button
+                                                    key={model.value}
+                                                    type="button"
+                                                    className={cn(
+                                                        'rounded-md border px-3 py-2 text-left transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                                                        regenerateModel ===
+                                                            model.value
+                                                            ? 'border-primary bg-primary text-primary-foreground'
+                                                            : 'bg-background hover:bg-accent',
+                                                    )}
+                                                    onClick={() =>
+                                                        setRegenerateModel(
+                                                            model.value,
+                                                        )
+                                                    }
+                                                >
+                                                    <span className="flex items-center justify-between gap-2">
+                                                        <span className="truncate text-sm font-medium">
+                                                            {model.label}
+                                                        </span>
+                                                        <span className="inline-flex items-center gap-1 text-xs opacity-80">
+                                                            <BadgeIcon className="size-3" />
+                                                            {badge.label}
+                                                        </span>
+                                                    </span>
+                                                    <span className="mt-1 block truncate text-xs opacity-80">
+                                                        {model.description}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                        <InputError message={errors.model} />
+                                    </div>
+
+                                    <DialogFooter>
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            onClick={() =>
+                                                setRegenerateMessage(null)
+                                            }
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            type="submit"
+                                            disabled={processing}
+                                        >
+                                            {processing && (
+                                                <LoaderCircle className="animate-spin" />
+                                            )}
+                                            Regenerate
                                         </Button>
                                     </DialogFooter>
                                 </>

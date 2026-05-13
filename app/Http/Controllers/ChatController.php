@@ -141,6 +141,56 @@ class ChatController extends Controller
         return redirect()->route('chat.show', $conversation);
     }
 
+    public function regenerate(Request $request, AgentConversation $conversation, History $message): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $this->authorizeConversation($conversation, $user);
+
+        abort_unless(
+            $message->user_id === $user->id
+                && $message->conversation_id === $conversation->id
+                && $message->role === 'assistant',
+            404,
+        );
+
+        $validated = $request->validate([
+            'model' => ['required', 'string', Rule::in($this->allowedModels())],
+        ]);
+
+        $prompt = History::query()
+            ->where('user_id', $user->id)
+            ->where('conversation_id', $conversation->id)
+            ->where('role', 'user')
+            ->where('created_at', '<=', $message->created_at)
+            ->latest('created_at')
+            ->firstOrFail();
+
+        $conversation->update(['model' => $validated['model']]);
+
+        $response = GeminiAgent::make(user: $user, conversationId: $conversation->id)->prompt($prompt->content, model: $conversation->model);
+
+        History::create([
+            'id' => (string) Str::uuid(),
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'agent' => GeminiAgent::class,
+            'role' => 'assistant',
+            'content' => $response instanceof StructuredAgentResponse
+                ? $response->toJson()
+                : (string) $response,
+            'attachments' => '[]',
+            'tool_calls' => $response->toolCalls->toJson(),
+            'tool_results' => $response->toolResults->toJson(),
+            'usage' => json_encode($response->usage),
+            'meta' => json_encode($response->meta),
+        ]);
+
+        $conversation->touch();
+
+        return redirect()->route('chat.show', $conversation);
+    }
+
     private function conversationFor(User $user, string $message, string $model, ?string $conversationId): AgentConversation
     {
         if ($conversationId) {

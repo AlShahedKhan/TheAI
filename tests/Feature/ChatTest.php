@@ -178,6 +178,97 @@ class ChatTest extends TestCase
         $this->assertEquals(0, History::where('conversation_id', $otherConversation->id)->count());
     }
 
+    public function test_assistant_message_can_be_regenerated_with_selected_model(): void
+    {
+        GeminiAgent::fake(['Regenerated answer.']);
+
+        $user = User::factory()->create();
+        $conversation = $this->conversationFor($user, 'Existing chat');
+        $userMessage = History::create([
+            'id' => (string) Str::uuid(),
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'agent' => GeminiAgent::class,
+            'role' => 'user',
+            'content' => 'Explain this again',
+            'attachments' => '[]',
+            'tool_calls' => '[]',
+            'tool_results' => '[]',
+            'usage' => '{}',
+            'meta' => '{}',
+            'created_at' => now()->subSecond(),
+            'updated_at' => now()->subSecond(),
+        ]);
+        $assistantMessage = History::create([
+            'id' => (string) Str::uuid(),
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'agent' => GeminiAgent::class,
+            'role' => 'assistant',
+            'content' => 'Original answer.',
+            'attachments' => '[]',
+            'tool_calls' => '[]',
+            'tool_results' => '[]',
+            'usage' => '{}',
+            'meta' => '{}',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->post(route('chat.regenerate', [$conversation, $assistantMessage]), [
+                'model' => 'gemini-3.1-pro-preview',
+            ]);
+
+        $response->assertRedirect(route('chat.show', $conversation));
+
+        $this->assertDatabaseHas('agent_conversations', [
+            'id' => $conversation->id,
+            'model' => 'gemini-3.1-pro-preview',
+        ]);
+        $this->assertDatabaseHas('agent_conversation_messages', [
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'assistant',
+            'content' => 'Regenerated answer.',
+        ]);
+        $this->assertEquals(3, History::where('conversation_id', $conversation->id)->count());
+        GeminiAgent::assertPrompted(fn ($prompt) => $prompt->prompt === $userMessage->content
+            && $prompt->model === 'gemini-3.1-pro-preview');
+    }
+
+    public function test_users_cannot_regenerate_another_users_message(): void
+    {
+        GeminiAgent::fake()->preventStrayPrompts();
+
+        $owner = User::factory()->create();
+        $intruder = User::factory()->create();
+        $conversation = $this->conversationFor($owner, 'Private chat');
+        $assistantMessage = History::create([
+            'id' => (string) Str::uuid(),
+            'conversation_id' => $conversation->id,
+            'user_id' => $owner->id,
+            'agent' => GeminiAgent::class,
+            'role' => 'assistant',
+            'content' => 'Private answer.',
+            'attachments' => '[]',
+            'tool_calls' => '[]',
+            'tool_results' => '[]',
+            'usage' => '{}',
+            'meta' => '{}',
+        ]);
+
+        $this
+            ->actingAs($intruder)
+            ->post(route('chat.regenerate', [$conversation, $assistantMessage]), [
+                'model' => 'gemini-3-flash-preview',
+            ])
+            ->assertNotFound();
+
+        GeminiAgent::assertNeverPrompted();
+    }
+
     public function test_chat_model_must_be_allowed(): void
     {
         GeminiAgent::fake()->preventStrayPrompts();
