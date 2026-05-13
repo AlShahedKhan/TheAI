@@ -1,12 +1,19 @@
 import { Form, Head, Link } from '@inertiajs/react';
 import {
+    Bot,
+    Check,
+    ChevronDown,
+    Copy,
     Edit3,
     LoaderCircle,
     MessageCircle,
     Plus,
     SendHorizontal,
+    Sparkles,
+    User,
+    Zap,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 type Conversation = {
     id: string;
@@ -47,30 +55,132 @@ type Props = {
     messages: ChatMessage[];
 };
 
-function displayContent(content: string) {
-    try {
-        const parsed = JSON.parse(content) as {
-            feedback?: string;
-            score?: number;
-        };
+const starterPrompts = [
+    'Summarize this project and suggest the next feature.',
+    'Write a clean Laravel controller for a small CRUD flow.',
+    'Explain this error and give me the safest fix.',
+];
 
-        if (parsed.feedback) {
-            return (
-                <div className="space-y-2">
-                    <p>{parsed.feedback}</p>
-                    {parsed.score && (
-                        <p className="text-xs font-medium text-muted-foreground">
-                            Score: {parsed.score}/10
-                        </p>
-                    )}
-                </div>
-            );
-        }
-    } catch {
-        // Plain text response.
+function formattedTime(value: string) {
+    return new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(new Date(value));
+}
+
+function modelBadge(value: string) {
+    if (value.includes('pro')) {
+        return { label: 'Deep', icon: Sparkles };
     }
 
-    return <p className="whitespace-pre-wrap">{content}</p>;
+    if (value.includes('lite')) {
+        return { label: 'Efficient', icon: Zap };
+    }
+
+    return { label: 'Balanced', icon: MessageCircle };
+}
+
+function MarkdownLite({ content }: { content: string }) {
+    const sections = content.split(/```/g);
+
+    return (
+        <div className="space-y-3">
+            {sections.map((section, index) => {
+                if (index % 2 === 1) {
+                    const [firstLine, ...rest] = section.split('\n');
+                    const language = firstLine.trim();
+                    const code = rest.join('\n').trim() || firstLine;
+
+                    return (
+                        <pre
+                            key={`${index}-${code.slice(0, 16)}`}
+                            className="overflow-x-auto rounded-md border bg-muted p-3 text-xs leading-5 text-foreground"
+                        >
+                            {language && (
+                                <div className="mb-2 text-[11px] font-medium text-muted-foreground uppercase">
+                                    {language}
+                                </div>
+                            )}
+                            <code>{code}</code>
+                        </pre>
+                    );
+                }
+
+                return section
+                    .split(/\n{2,}/g)
+                    .filter(Boolean)
+                    .map((paragraph, paragraphIndex) => (
+                        <p
+                            key={`${index}-${paragraphIndex}`}
+                            className="text-sm leading-6 whitespace-pre-wrap"
+                        >
+                            {paragraph}
+                        </p>
+                    ));
+            })}
+        </div>
+    );
+}
+
+function MessageRow({
+    message,
+    copied,
+    onCopy,
+}: {
+    message: ChatMessage;
+    copied: boolean;
+    onCopy: () => void;
+}) {
+    const isUser = message.role === 'user';
+    const Icon = isUser ? User : Bot;
+
+    return (
+        <div className={cn('group flex gap-3', isUser && 'justify-end')}>
+            {!isUser && (
+                <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-md border bg-card">
+                    <Icon className="size-4" />
+                </div>
+            )}
+
+            <div className={cn('max-w-[82%] min-w-0', !isUser && 'max-w-3xl')}>
+                <div
+                    className={cn(
+                        'rounded-lg px-4 py-3 shadow-xs',
+                        isUser
+                            ? 'bg-primary text-primary-foreground'
+                            : 'border bg-card text-card-foreground',
+                    )}
+                >
+                    <MarkdownLite content={message.content} />
+                </div>
+                <div
+                    className={cn(
+                        'mt-1 flex items-center gap-2 text-xs text-muted-foreground opacity-80',
+                        isUser && 'justify-end',
+                    )}
+                >
+                    <span>{isUser ? 'You' : 'Gemini'}</span>
+                    <span>{formattedTime(message.created_at)}</span>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 opacity-0 transition-opacity group-hover:opacity-100"
+                        onClick={onCopy}
+                    >
+                        {copied ? <Check /> : <Copy />}
+                        {copied ? 'Copied' : 'Copy'}
+                    </Button>
+                </div>
+            </div>
+
+            {isUser && (
+                <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                    <Icon className="size-4" />
+                </div>
+            )}
+        </div>
+    );
 }
 
 export default function ChatIndex({
@@ -81,8 +191,34 @@ export default function ChatIndex({
     messages,
 }: Props) {
     const [renameOpen, setRenameOpen] = useState(false);
+    const [draft, setDraft] = useState('');
+    const [selectedModel, setSelectedModel] = useState(
+        activeConversation?.model ?? defaultModel,
+    );
+    const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+    const bottomRef = useRef<HTMLDivElement>(null);
     const pageTitle = activeConversation?.title ?? 'New chat';
-    const selectedModel = activeConversation?.model ?? defaultModel;
+    const activeModel = useMemo(
+        () =>
+            modelOptions.find((model) => model.value === selectedModel) ??
+            modelOptions[0],
+        [modelOptions, selectedModel],
+    );
+
+    useEffect(() => {
+        setSelectedModel(activeConversation?.model ?? defaultModel);
+        setDraft('');
+    }, [activeConversation?.id, activeConversation?.model, defaultModel]);
+
+    useEffect(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages.length]);
+
+    const copyMessage = (message: ChatMessage) => {
+        navigator.clipboard.writeText(message.content);
+        setCopiedMessageId(message.id);
+        window.setTimeout(() => setCopiedMessageId(null), 1500);
+    };
 
     return (
         <>
@@ -120,8 +256,13 @@ export default function ChatIndex({
                                     >
                                         <Link href={`/chat/${conversation.id}`}>
                                             <MessageCircle className="mt-0.5" />
-                                            <span className="min-w-0 flex-1 truncate">
-                                                {conversation.title}
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block truncate">
+                                                    {conversation.title}
+                                                </span>
+                                                <span className="block truncate text-xs font-normal text-muted-foreground">
+                                                    {conversation.model}
+                                                </span>
                                             </span>
                                         </Link>
                                     </Button>
@@ -137,9 +278,9 @@ export default function ChatIndex({
                             <h1 className="truncate text-lg font-semibold">
                                 {pageTitle}
                             </h1>
-                            <p className="text-sm text-muted-foreground">
-                                {activeConversation
-                                    ? 'Continue your Gemini conversation.'
+                            <p className="truncate text-sm text-muted-foreground">
+                                {activeModel
+                                    ? `${activeModel.label} - ${activeModel.description}`
                                     : 'Send a message to start a new chat.'}
                             </p>
                         </div>
@@ -172,34 +313,44 @@ export default function ChatIndex({
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-4 py-6">
-                        <div className="mx-auto flex max-w-3xl flex-col gap-4">
+                        <div className="mx-auto flex max-w-4xl flex-col gap-5">
                             {messages.length === 0 && (
-                                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                                    Send a message to start testing your Gemini
-                                    agent.
+                                <div className="space-y-5 rounded-lg border border-dashed p-6 text-center">
+                                    <div>
+                                        <h2 className="text-base font-semibold">
+                                            Start with a sharp prompt
+                                        </h2>
+                                        <p className="mt-1 text-sm text-muted-foreground">
+                                            Choose a model, ask anything, and
+                                            this chat will save automatically.
+                                        </p>
+                                    </div>
+                                    <div className="grid gap-2 md:grid-cols-3">
+                                        {starterPrompts.map((prompt) => (
+                                            <Button
+                                                key={prompt}
+                                                type="button"
+                                                variant="outline"
+                                                className="h-auto justify-start px-3 py-3 text-left text-sm whitespace-normal"
+                                                onClick={() => setDraft(prompt)}
+                                            >
+                                                {prompt}
+                                            </Button>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
 
                             {messages.map((message) => (
-                                <div
+                                <MessageRow
                                     key={message.id}
-                                    className={`flex ${
-                                        message.role === 'user'
-                                            ? 'justify-end'
-                                            : 'justify-start'
-                                    }`}
-                                >
-                                    <div
-                                        className={`max-w-[85%] rounded-lg px-4 py-3 text-sm leading-6 ${
-                                            message.role === 'user'
-                                                ? 'bg-primary text-primary-foreground'
-                                                : 'border bg-card text-card-foreground'
-                                        }`}
-                                    >
-                                        {displayContent(message.content)}
-                                    </div>
-                                </div>
+                                    message={message}
+                                    copied={copiedMessageId === message.id}
+                                    onCopy={() => copyMessage(message)}
+                                />
                             ))}
+
+                            <div ref={bottomRef} />
                         </div>
                     </div>
 
@@ -207,8 +358,8 @@ export default function ChatIndex({
                         <Form
                             action="/chat"
                             method="post"
-                            resetOnSuccess={['message']}
-                            className="mx-auto flex max-w-3xl gap-2"
+                            className="mx-auto max-w-4xl space-y-3"
+                            onSuccess={() => setDraft('')}
                         >
                             {({ processing, errors }) => (
                                 <>
@@ -219,41 +370,77 @@ export default function ChatIndex({
                                             value={activeConversation.id}
                                         />
                                     )}
-                                    <div className="flex flex-1 flex-col gap-2">
-                                        <select
-                                            name="model"
-                                            defaultValue={selectedModel}
-                                            className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:max-w-xs"
-                                        >
-                                            {modelOptions.map((model) => (
-                                                <option
-                                                    key={model.value}
-                                                    value={model.value}
+                                    <input
+                                        type="hidden"
+                                        name="model"
+                                        value={selectedModel}
+                                    />
+
+                                    <div className="flex gap-2">
+                                        <div className="flex flex-1 overflow-hidden rounded-md border border-input shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+                                            <div className="relative shrink-0 border-r bg-background">
+                                                <select
+                                                    value={selectedModel}
+                                                    onChange={(event) =>
+                                                        setSelectedModel(
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                    className="h-full min-h-16 max-w-36 appearance-none bg-transparent py-2 pr-8 pl-3 text-sm font-medium outline-none"
+                                                    aria-label="Select model"
                                                 >
-                                                    {model.label}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <textarea
-                                            name="message"
-                                            rows={2}
-                                            placeholder="Message Gemini..."
-                                            className="min-h-12 w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                                        />
-                                        <InputError message={errors.message} />
+                                                    {modelOptions.map(
+                                                        (model) => (
+                                                            <option
+                                                                key={
+                                                                    model.value
+                                                                }
+                                                                value={
+                                                                    model.value
+                                                                }
+                                                            >
+                                                                {model.label}
+                                                            </option>
+                                                        ),
+                                                    )}
+                                                </select>
+                                                <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-4 -translate-y-1/2 text-muted-foreground" />
+                                            </div>
+                                            <textarea
+                                                name="message"
+                                                rows={2}
+                                                value={draft}
+                                                onChange={(event) =>
+                                                    setDraft(event.target.value)
+                                                }
+                                                placeholder="Message Gemini..."
+                                                className="min-h-16 w-full resize-none border-0 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                                            />
+                                        </div>
+                                        <Button
+                                            type="submit"
+                                            size="icon"
+                                            className="mt-1"
+                                            disabled={
+                                                processing ||
+                                                draft.trim().length === 0
+                                            }
+                                        >
+                                            {processing ? (
+                                                <LoaderCircle className="animate-spin" />
+                                            ) : (
+                                                <SendHorizontal />
+                                            )}
+                                        </Button>
                                     </div>
-                                    <Button
-                                        type="submit"
-                                        size="icon"
-                                        className="mt-1"
-                                        disabled={processing}
-                                    >
-                                        {processing ? (
-                                            <LoaderCircle className="animate-spin" />
-                                        ) : (
-                                            <SendHorizontal />
-                                        )}
-                                    </Button>
+                                    <InputError message={errors.message} />
+
+                                    {processing && (
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                            <LoaderCircle className="size-4 animate-spin" />
+                                            Gemini is thinking...
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </Form>
