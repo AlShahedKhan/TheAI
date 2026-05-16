@@ -13,6 +13,10 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Laravel\Ai\Exceptions\AiException;
+use Laravel\Ai\Exceptions\InsufficientCreditsException;
+use Laravel\Ai\Exceptions\ProviderOverloadedException;
+use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Ai\Responses\StructuredAgentResponse;
 
 class ChatController extends Controller
@@ -76,7 +80,14 @@ class ChatController extends Controller
                     ->where('user_id', $user->id)
                     ->latest('created_at')
                     ->limit(50)
-                    ->get(['id', 'role', 'content', 'created_at'])
+                    ->get(['id', 'role', 'content', 'meta', 'created_at'])
+                    ->map(fn (History $message) => [
+                        'id' => $message->id,
+                        'role' => $message->role,
+                        'content' => $message->content,
+                        'created_at' => $message->created_at,
+                        'model_label' => data_get(json_decode($message->meta, true), 'model_label'),
+                    ])
                     ->reverse()
                     ->values()
                 : [],
@@ -118,23 +129,7 @@ class ChatController extends Controller
             'meta' => '{}',
         ]);
 
-        $response = GeminiAgent::make(user: $user, conversationId: $conversation->id)->prompt($validated['message'], model: $conversation->model);
-
-        History::create([
-            'id' => (string) Str::uuid(),
-            'conversation_id' => $conversation->id,
-            'user_id' => $user->id,
-            'agent' => GeminiAgent::class,
-            'role' => 'assistant',
-            'content' => $response instanceof StructuredAgentResponse
-                ? $response->toJson()
-                : (string) $response,
-            'attachments' => '[]',
-            'tool_calls' => $response->toolCalls->toJson(),
-            'tool_results' => $response->toolResults->toJson(),
-            'usage' => json_encode($response->usage),
-            'meta' => json_encode($response->meta),
-        ]);
+        $this->createAssistantMessage($user, $conversation, $validated['message']);
 
         $conversation->touch();
 
@@ -168,23 +163,7 @@ class ChatController extends Controller
 
         $conversation->update(['model' => $validated['model']]);
 
-        $response = GeminiAgent::make(user: $user, conversationId: $conversation->id)->prompt($prompt->content, model: $conversation->model);
-
-        History::create([
-            'id' => (string) Str::uuid(),
-            'conversation_id' => $conversation->id,
-            'user_id' => $user->id,
-            'agent' => GeminiAgent::class,
-            'role' => 'assistant',
-            'content' => $response instanceof StructuredAgentResponse
-                ? $response->toJson()
-                : (string) $response,
-            'attachments' => '[]',
-            'tool_calls' => $response->toolCalls->toJson(),
-            'tool_results' => $response->toolResults->toJson(),
-            'usage' => json_encode($response->usage),
-            'meta' => json_encode($response->meta),
-        ]);
+        $this->createAssistantMessage($user, $conversation, $prompt->content);
 
         $conversation->touch();
 
@@ -212,9 +191,73 @@ class ChatController extends Controller
         ]);
     }
 
+    private function createAssistantMessage(User $user, AgentConversation $conversation, string $prompt): History
+    {
+        try {
+            $response = GeminiAgent::make(user: $user, conversationId: $conversation->id)->prompt($prompt, model: $conversation->model);
+
+            return History::create([
+                'id' => (string) Str::uuid(),
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'agent' => GeminiAgent::class,
+                'role' => 'assistant',
+                'content' => $response instanceof StructuredAgentResponse
+                    ? $response->toJson()
+                    : (string) $response,
+                'attachments' => '[]',
+                'tool_calls' => $response->toolCalls->toJson(),
+                'tool_results' => $response->toolResults->toJson(),
+                'usage' => json_encode($response->usage),
+                'meta' => $this->messageMeta($response->meta, $conversation->model),
+            ]);
+        } catch (AiException $exception) {
+            report($exception);
+
+            return History::create([
+                'id' => (string) Str::uuid(),
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'agent' => GeminiAgent::class,
+                'role' => 'assistant',
+                'content' => $this->friendlyAiError($exception),
+                'attachments' => '[]',
+                'tool_calls' => '[]',
+                'tool_results' => '[]',
+                'usage' => '{}',
+                'meta' => $this->messageMeta(['error' => true], $conversation->model),
+            ]);
+        }
+    }
+
+    private function friendlyAiError(AiException $exception): string
+    {
+        return match (true) {
+            $exception instanceof RateLimitedException => 'Gemini is temporarily rate limited. Please wait a moment, then try again. If it keeps happening, switch to a lighter model like Flash-Lite or reduce regenerate/send attempts.',
+            $exception instanceof InsufficientCreditsException => 'Gemini could not respond because the API project does not have enough credits or billing quota. Please check billing/quota, then try again.',
+            $exception instanceof ProviderOverloadedException => 'Gemini is overloaded right now. Please try again in a moment or switch to a faster model.',
+            default => 'Gemini could not complete this request right now. Please try again, or switch models if the problem continues.',
+        };
+    }
+
     private function modelOptions(): array
     {
         return config('ai.providers.gemini.chat_models', []);
+    }
+
+    private function modelLabel(string $model): string
+    {
+        return collect($this->modelOptions())
+            ->firstWhere('value', $model)['label'] ?? $model;
+    }
+
+    private function messageMeta(mixed $meta, string $model): string
+    {
+        return json_encode([
+            ...json_decode(json_encode($meta), true),
+            'model' => $model,
+            'model_label' => $this->modelLabel($model),
+        ]);
     }
 
     private function allowedModels(): array

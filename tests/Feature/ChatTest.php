@@ -12,6 +12,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia;
+use Laravel\Ai\Exceptions\InsufficientCreditsException;
+use Laravel\Ai\Exceptions\RateLimitedException;
 use Tests\TestCase;
 
 class ChatTest extends TestCase
@@ -107,6 +109,10 @@ class ChatTest extends TestCase
             'role' => 'assistant',
             'content' => 'Hello from Gemini.',
         ]);
+
+        $assistantMessage = History::where('role', 'assistant')->firstOrFail();
+        $this->assertSame('gemini-2.5-flash', json_decode($assistantMessage->meta, true)['model']);
+        $this->assertSame('Gemini 2.5 Flash', json_decode($assistantMessage->meta, true)['model_label']);
 
         GeminiAgent::assertPrompted(fn ($prompt) => $prompt->model === 'gemini-2.5-flash');
     }
@@ -233,6 +239,9 @@ class ChatTest extends TestCase
             'role' => 'assistant',
             'content' => 'Regenerated answer.',
         ]);
+
+        $regeneratedMessage = History::where('content', 'Regenerated answer.')->firstOrFail();
+        $this->assertSame('Gemini 3.1 Pro', json_decode($regeneratedMessage->meta, true)['model_label']);
         $this->assertEquals(3, History::where('conversation_id', $conversation->id)->count());
         GeminiAgent::assertPrompted(fn ($prompt) => $prompt->prompt === $userMessage->content
             && $prompt->model === 'gemini-3.1-pro-preview');
@@ -285,6 +294,88 @@ class ChatTest extends TestCase
         $response->assertSessionHasErrors('model');
         $this->assertDatabaseCount('agent_conversations', 0);
         GeminiAgent::assertNeverPrompted();
+    }
+
+    public function test_rate_limited_ai_errors_are_saved_as_friendly_assistant_messages(): void
+    {
+        Bus::fake();
+        GeminiAgent::fake([
+            fn () => throw RateLimitedException::forProvider('gemini'),
+        ]);
+
+        $user = User::factory()->create();
+
+        $response = $this
+            ->actingAs($user)
+            ->post(route('chat.store'), [
+                'message' => 'What is the latest news?',
+                'model' => 'gemini-3-flash-preview',
+            ]);
+
+        $conversation = AgentConversation::query()->firstOrFail();
+
+        $response->assertRedirect(route('chat.show', $conversation));
+        $this->assertDatabaseHas('agent_conversation_messages', [
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'assistant',
+            'content' => 'Gemini is temporarily rate limited. Please wait a moment, then try again. If it keeps happening, switch to a lighter model like Flash-Lite or reduce regenerate/send attempts.',
+        ]);
+    }
+
+    public function test_credit_ai_errors_are_saved_as_friendly_assistant_messages(): void
+    {
+        GeminiAgent::fake([
+            fn () => throw InsufficientCreditsException::forProvider('gemini'),
+        ]);
+
+        $user = User::factory()->create();
+        $conversation = $this->conversationFor($user, 'Existing chat');
+        $userMessage = History::create([
+            'id' => (string) Str::uuid(),
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'agent' => GeminiAgent::class,
+            'role' => 'user',
+            'content' => 'Try again',
+            'attachments' => '[]',
+            'tool_calls' => '[]',
+            'tool_results' => '[]',
+            'usage' => '{}',
+            'meta' => '{}',
+            'created_at' => now()->subSecond(),
+            'updated_at' => now()->subSecond(),
+        ]);
+        $assistantMessage = History::create([
+            'id' => (string) Str::uuid(),
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'agent' => GeminiAgent::class,
+            'role' => 'assistant',
+            'content' => 'Original answer.',
+            'attachments' => '[]',
+            'tool_calls' => '[]',
+            'tool_results' => '[]',
+            'usage' => '{}',
+            'meta' => '{}',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->post(route('chat.regenerate', [$conversation, $assistantMessage]), [
+                'model' => 'gemini-3-flash-preview',
+            ]);
+
+        $response->assertRedirect(route('chat.show', $conversation));
+        $this->assertDatabaseHas('agent_conversation_messages', [
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'assistant',
+            'content' => 'Gemini could not respond because the API project does not have enough credits or billing quota. Please check billing/quota, then try again.',
+        ]);
+        GeminiAgent::assertPrompted(fn ($prompt) => $prompt->prompt === $userMessage->content);
     }
 
     public function test_users_cannot_open_post_to_or_rename_another_users_conversation(): void

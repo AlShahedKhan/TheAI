@@ -2,14 +2,12 @@
 
 namespace App\Ai\Agents;
 
-use App\Ai\Tools\RetrievePreviousTranscripts;
 use App\Models\History;
 use App\Models\User;
 use Laravel\Ai\Attributes\Provider;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\Conversational;
 use Laravel\Ai\Contracts\HasTools;
-use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
@@ -27,7 +25,7 @@ class GeminiAgent implements Agent, Conversational, HasTools
      */
     public function instructions(): Stringable|string
     {
-        return 'You are a helpful assistant.';
+        return 'You are a helpful assistant. If the user asks for current, recent, latest, today, prices, schedules, availability, news, or other time-sensitive information, explain when the answer may need live verification instead of guessing.';
     }
 
     /**
@@ -51,12 +49,10 @@ class GeminiAgent implements Agent, Conversational, HasTools
     /**
      * Get the tools available to the agent.
      *
-     * @return Tool[]
+     * @return array<int, never>
      */
     public function tools(): iterable
     {
-        return [
-            new RetrievePreviousTranscripts($this->user),
-        ];
+        return [];
     }
 }

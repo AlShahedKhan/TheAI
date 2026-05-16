@@ -45,6 +45,7 @@ type ChatMessage = {
     id: string;
     role: 'user' | 'assistant';
     content: string;
+    model_label?: string | null;
     created_at: string;
 };
 
@@ -162,7 +163,9 @@ function MessageRow({
                         isUser && 'justify-end',
                     )}
                 >
-                    <span>{isUser ? 'You' : 'Gemini'}</span>
+                    <span>
+                        {isUser ? 'You' : (message.model_label ?? 'Gemini')}
+                    </span>
                     <span>{formattedTime(message.created_at)}</span>
                     <Button
                         type="button"
@@ -467,6 +470,32 @@ export default function ChatIndex({
                                                 onChange={(event) =>
                                                     setDraft(event.target.value)
                                                 }
+                                                onKeyDown={(event) => {
+                                                    if (
+                                                        event.key !== 'Enter' ||
+                                                        event.shiftKey ||
+                                                        event.nativeEvent
+                                                            .isComposing
+                                                    ) {
+                                                        return;
+                                                    }
+
+                                                    event.preventDefault();
+
+                                                    if (
+                                                        draft.trim().length ===
+                                                        0
+                                                    ) {
+                                                        return;
+                                                    }
+
+                                                    event.currentTarget
+                                                        .closest('form')
+                                                        ?.querySelector<HTMLButtonElement>(
+                                                            '[data-chat-submit]',
+                                                        )
+                                                        ?.click();
+                                                }}
                                                 placeholder="Message Gemini..."
                                                 className="min-h-16 w-full resize-none border-0 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
                                             />
@@ -475,6 +504,7 @@ export default function ChatIndex({
                                             type="submit"
                                             size="icon"
                                             className="mt-1"
+                                            data-chat-submit
                                             disabled={
                                                 processing ||
                                                 draft.trim().length === 0
