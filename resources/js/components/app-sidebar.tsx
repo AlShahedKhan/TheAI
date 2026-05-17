@@ -2,6 +2,7 @@ import { Link, usePage } from '@inertiajs/react';
 import {
     BookOpen,
     Clapperboard,
+    CreditCard,
     FolderGit2,
     LayoutGrid,
     MessageCircle,
@@ -44,6 +45,11 @@ export function AppSidebar() {
             title: 'Video',
             href: '/videos',
             icon: Clapperboard,
+        },
+        {
+            title: 'Usage',
+            href: '/usage',
+            icon: CreditCard,
         },
     ];
 

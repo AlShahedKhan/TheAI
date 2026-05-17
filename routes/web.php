@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\Teams\TeamInvitationController;
+use App\Http\Controllers\UsageController;
 use App\Http\Controllers\VideoGenerationController;
 use App\Http\Middleware\EnsureTeamMembership;
 use Illuminate\Support\Facades\Route;
@@ -24,6 +25,7 @@ Route::middleware(['auth'])->group(function () {
     Route::patch('chat/{conversation}', [ChatController::class, 'update'])->name('chat.update');
     Route::get('videos', [VideoGenerationController::class, 'index'])->name('videos.index');
     Route::post('videos', [VideoGenerationController::class, 'store'])->name('videos.store');
+    Route::get('usage', [UsageController::class, 'index'])->name('usage.index');
 });
 
 require __DIR__.'/settings.php';
