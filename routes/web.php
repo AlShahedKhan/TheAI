@@ -26,6 +26,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('videos', [VideoGenerationController::class, 'index'])->name('videos.index');
     Route::post('videos', [VideoGenerationController::class, 'store'])->name('videos.store');
     Route::get('usage', [UsageController::class, 'index'])->name('usage.index');
+    Route::post('usage/credits/purchase', [UsageController::class, 'purchaseCredits'])->name('usage.credits.purchase');
+    Route::post('usage/credits/recharge', [UsageController::class, 'rechargeCredits'])->name('usage.credits.recharge');
 });
 
 require __DIR__.'/settings.php';

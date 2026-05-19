@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Ai\Agents\GeminiAgent;
+use App\Models\CreditTransaction;
 use App\Models\History;
 use App\Models\User;
 use App\Models\VideoGeneration;
@@ -63,6 +64,10 @@ class UsageTest extends TestCase
                 ->where('chat.completion_tokens', 1_000_000)
                 ->where('chat.estimated_cost', 0.5)
                 ->where('chat.by_model.0.label', 'Gemini 2.5 Flash-Lite')
+                ->where('credits.user.balance', 0)
+                ->where('credits.site.available', 0)
+                ->where('credits.rates.credits_per_usd', 150)
+                ->where('credits.rates.bdt_per_credit', 1)
                 ->where('budget.configured', true)
                 ->where('budget.amount', 10)
                 ->where('budget.remaining', 9.5)
@@ -76,5 +81,95 @@ class UsageTest extends TestCase
         $this
             ->get(route('usage.index'))
             ->assertRedirect(route('login'));
+    }
+
+    public function test_admin_can_recharge_website_credits(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+
+        $this
+            ->actingAs($admin)
+            ->post(route('usage.credits.recharge'), [
+                'amount_usd' => 2,
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('credit_transactions', [
+            'created_by' => $admin->id,
+            'type' => CreditTransaction::TYPE_ADMIN_RECHARGE,
+            'credits' => 300,
+            'amount' => 2,
+            'currency' => 'USD',
+        ]);
+    }
+
+    public function test_non_admin_cannot_recharge_website_credits(): void
+    {
+        $user = User::factory()->create();
+
+        $this
+            ->actingAs($user)
+            ->post(route('usage.credits.recharge'), [
+                'amount_usd' => 1,
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('credit_transactions', 0);
+    }
+
+    public function test_user_can_buy_credits_from_available_website_pool(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+        $user = User::factory()->create();
+
+        CreditTransaction::create([
+            'created_by' => $admin->id,
+            'type' => CreditTransaction::TYPE_ADMIN_RECHARGE,
+            'credits' => 150,
+            'amount' => 1,
+            'currency' => 'USD',
+            'meta' => ['mode' => 'test'],
+        ]);
+
+        $this
+            ->actingAs($user)
+            ->post(route('usage.credits.purchase'), [
+                'credits' => 100,
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('credit_transactions', [
+            'user_id' => $user->id,
+            'created_by' => $user->id,
+            'type' => CreditTransaction::TYPE_USER_PURCHASE,
+            'credits' => 100,
+            'amount' => 100,
+            'currency' => 'BDT',
+        ]);
+
+        $this
+            ->actingAs($user)
+            ->get(route('usage.index'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('credits.user.balance', 100)
+                ->where('credits.user.spent_bdt', 100)
+                ->where('credits.site.available', 50)
+            );
+    }
+
+    public function test_user_cannot_buy_more_credits_than_website_pool_has(): void
+    {
+        $user = User::factory()->create();
+
+        $this
+            ->actingAs($user)
+            ->from(route('usage.index'))
+            ->post(route('usage.credits.purchase'), [
+                'credits' => 100,
+            ])
+            ->assertRedirect(route('usage.index'))
+            ->assertSessionHasErrors('credits');
+
+        $this->assertDatabaseCount('credit_transactions', 0);
     }
 }
