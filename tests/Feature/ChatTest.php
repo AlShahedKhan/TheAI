@@ -6,6 +6,7 @@ use App\Ai\Agents\ChatTitleAgent;
 use App\Ai\Agents\GeminiAgent;
 use App\Jobs\GenerateConversationTitle;
 use App\Models\AgentConversation;
+use App\Models\CreditTransaction;
 use App\Models\History;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -71,6 +72,7 @@ class ChatTest extends TestCase
         GeminiAgent::fake(['Hello from Gemini.']);
 
         $user = User::factory()->create();
+        $this->grantCredits($user);
 
         $response = $this
             ->actingAs($user)
@@ -162,6 +164,7 @@ class ChatTest extends TestCase
         GeminiAgent::fake(['Follow up answer.']);
 
         $user = User::factory()->create();
+        $this->grantCredits($user);
         $conversation = $this->conversationFor($user, 'Existing chat');
         $otherConversation = $this->conversationFor($user, 'Other chat');
 
@@ -189,6 +192,7 @@ class ChatTest extends TestCase
         GeminiAgent::fake(['Regenerated answer.']);
 
         $user = User::factory()->create();
+        $this->grantCredits($user);
         $conversation = $this->conversationFor($user, 'Existing chat');
         $userMessage = History::create([
             'id' => (string) Str::uuid(),
@@ -283,6 +287,7 @@ class ChatTest extends TestCase
         GeminiAgent::fake()->preventStrayPrompts();
 
         $user = User::factory()->create();
+        $this->grantCredits($user);
 
         $response = $this
             ->actingAs($user)
@@ -296,6 +301,25 @@ class ChatTest extends TestCase
         GeminiAgent::assertNeverPrompted();
     }
 
+    public function test_user_cannot_chat_without_credits(): void
+    {
+        Bus::fake();
+        GeminiAgent::fake()->preventStrayPrompts();
+
+        $user = User::factory()->create();
+
+        $this
+            ->actingAs($user)
+            ->post(route('chat.store'), [
+                'message' => 'Hello',
+                'model' => 'gemini-3-flash-preview',
+            ])
+            ->assertSessionHasErrors('credits');
+
+        $this->assertDatabaseCount('agent_conversations', 0);
+        GeminiAgent::assertNeverPrompted();
+    }
+
     public function test_rate_limited_ai_errors_are_saved_as_friendly_assistant_messages(): void
     {
         Bus::fake();
@@ -304,6 +328,7 @@ class ChatTest extends TestCase
         ]);
 
         $user = User::factory()->create();
+        $this->grantCredits($user);
 
         $response = $this
             ->actingAs($user)
@@ -330,6 +355,7 @@ class ChatTest extends TestCase
         ]);
 
         $user = User::factory()->create();
+        $this->grantCredits($user);
         $conversation = $this->conversationFor($user, 'Existing chat');
         $userMessage = History::create([
             'id' => (string) Str::uuid(),
@@ -459,6 +485,19 @@ class ChatTest extends TestCase
             'user_id' => $user->id,
             'title' => $title,
             'model' => 'gemini-3-flash-preview',
+        ]);
+    }
+
+    private function grantCredits(User $user, int $credits = 10): void
+    {
+        CreditTransaction::create([
+            'user_id' => $user->id,
+            'created_by' => $user->id,
+            'type' => CreditTransaction::TYPE_USER_PURCHASE,
+            'credits' => $credits,
+            'amount' => $credits,
+            'currency' => 'BDT',
+            'meta' => ['mode' => 'test'],
         ]);
     }
 }

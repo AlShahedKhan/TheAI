@@ -6,9 +6,9 @@ use App\Models\CreditTransaction;
 use App\Models\History;
 use App\Models\User;
 use App\Models\VideoGeneration;
+use App\Services\CreditLedger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -38,15 +38,15 @@ class UsageController extends Controller
                 'amount' => is_numeric($budget) ? (float) $budget : null,
                 'remaining' => is_numeric($budget) ? max((float) $budget - $chat['estimated_cost'], 0) : null,
             ],
-            'links' => [
+            'links' => $user->is_admin ? [
                 'aiStudio' => 'https://aistudio.google.com/',
                 'cloudBilling' => 'https://console.cloud.google.com/billing',
                 'pricing' => 'https://ai.google.dev/pricing',
-            ],
+            ] : null,
         ]);
     }
 
-    public function purchaseCredits(Request $request): RedirectResponse
+    public function purchaseCredits(Request $request, CreditLedger $credits): RedirectResponse
     {
         /** @var User $user */
         $user = $request->user();
@@ -55,34 +55,18 @@ class UsageController extends Controller
             'credits' => ['required', 'integer', 'min:1', 'max:100000'],
         ]);
 
-        $credits = (int) $validated['credits'];
+        $creditAmount = (int) $validated['credits'];
 
-        return DB::transaction(function () use ($credits, $user) {
-            if ($this->siteCreditBalance() < $credits) {
-                return back()->withErrors([
-                    'credits' => 'The website does not have enough available credits. Please ask the admin to recharge first.',
-                ]);
-            }
-
-            CreditTransaction::create([
-                'user_id' => $user->id,
-                'created_by' => $user->id,
-                'type' => CreditTransaction::TYPE_USER_PURCHASE,
-                'credits' => $credits,
-                'amount' => $credits * CreditTransaction::BDT_PER_CREDIT,
-                'currency' => 'BDT',
-                'meta' => [
-                    'mode' => 'dummy',
-                    'rate' => CreditTransaction::BDT_PER_CREDIT,
-                    'note' => 'Dummy user credit purchase.',
-                ],
+        if (! $credits->purchase($user, $creditAmount)) {
+            return back()->withErrors([
+                'credits' => 'The website does not have enough available credits. Please ask the admin to recharge first.',
             ]);
+        }
 
-            return back()->with('success', "{$credits} credits added to your account.");
-        });
+        return back()->with('success', "{$creditAmount} credits added to your account.");
     }
 
-    public function rechargeCredits(Request $request): RedirectResponse
+    public function rechargeCredits(Request $request, CreditLedger $credits): RedirectResponse
     {
         /** @var User $user */
         $user = $request->user();
@@ -94,22 +78,9 @@ class UsageController extends Controller
         ]);
 
         $amountUsd = round((float) $validated['amount_usd'], 2);
-        $credits = (int) round($amountUsd * CreditTransaction::CREDITS_PER_USD);
+        $transaction = $credits->recharge($user, $amountUsd);
 
-        CreditTransaction::create([
-            'created_by' => $user->id,
-            'type' => CreditTransaction::TYPE_ADMIN_RECHARGE,
-            'credits' => $credits,
-            'amount' => $amountUsd,
-            'currency' => 'USD',
-            'meta' => [
-                'mode' => 'dummy',
-                'rate' => CreditTransaction::CREDITS_PER_USD,
-                'note' => 'Dummy Google AI Studio recharge.',
-            ],
-        ]);
-
-        return back()->with('success', "{$credits} website credits added.");
+        return back()->with('success', "{$transaction->credits} website credits added.");
     }
 
     private function chatUsage($messages): array
@@ -181,28 +152,24 @@ class UsageController extends Controller
 
     private function creditSummary(User $user): array
     {
-        $adminCredits = (int) CreditTransaction::query()
-            ->where('type', CreditTransaction::TYPE_ADMIN_RECHARGE)
-            ->sum('credits');
-
-        $soldCredits = (int) CreditTransaction::query()
-            ->where('type', CreditTransaction::TYPE_USER_PURCHASE)
-            ->sum('credits');
-
-        $userCredits = (int) CreditTransaction::query()
-            ->where('user_id', $user->id)
-            ->where('type', CreditTransaction::TYPE_USER_PURCHASE)
-            ->sum('credits');
+        $ledger = app(CreditLedger::class);
+        $adminCredits = $ledger->siteRechargedCredits();
+        $soldCredits = $ledger->siteSoldCredits();
+        $userPurchasedCredits = $ledger->userPurchasedCredits($user);
+        $userSpentCredits = $ledger->userSpentCredits($user);
 
         return [
             'is_admin' => $user->is_admin,
             'rates' => [
                 'credits_per_usd' => CreditTransaction::CREDITS_PER_USD,
                 'bdt_per_credit' => CreditTransaction::BDT_PER_CREDIT,
+                'chat_message_cost' => CreditTransaction::CHAT_MESSAGE_COST,
+                'video_generation_cost' => CreditTransaction::VIDEO_GENERATION_COST,
             ],
             'user' => [
-                'balance' => $userCredits,
-                'purchased' => $userCredits,
+                'balance' => $userPurchasedCredits - $userSpentCredits,
+                'purchased' => $userPurchasedCredits,
+                'used' => $userSpentCredits,
                 'spent_bdt' => (float) CreditTransaction::query()
                     ->where('user_id', $user->id)
                     ->where('type', CreditTransaction::TYPE_USER_PURCHASE)
@@ -215,15 +182,15 @@ class UsageController extends Controller
                     ->map(fn (CreditTransaction $transaction) => $this->serializeCreditTransaction($transaction)),
             ],
             'site' => [
-                'admin_recharged' => $adminCredits,
-                'sold' => $soldCredits,
-                'available' => $adminCredits - $soldCredits,
-                'recharged_usd' => (float) CreditTransaction::query()
+                'admin_recharged' => $user->is_admin ? $adminCredits : 0,
+                'sold' => $user->is_admin ? $soldCredits : 0,
+                'available' => $user->is_admin ? $adminCredits - $soldCredits : 0,
+                'recharged_usd' => $user->is_admin ? (float) CreditTransaction::query()
                     ->where('type', CreditTransaction::TYPE_ADMIN_RECHARGE)
-                    ->sum('amount'),
-                'sales_bdt' => (float) CreditTransaction::query()
+                    ->sum('amount') : 0,
+                'sales_bdt' => $user->is_admin ? (float) CreditTransaction::query()
                     ->where('type', CreditTransaction::TYPE_USER_PURCHASE)
-                    ->sum('amount'),
+                    ->sum('amount') : 0,
                 'recent' => $user->is_admin
                     ? CreditTransaction::query()
                         ->with('user:id,name,email')
@@ -234,19 +201,6 @@ class UsageController extends Controller
                     : [],
             ],
         ];
-    }
-
-    private function siteCreditBalance(): int
-    {
-        $adminCredits = (int) CreditTransaction::query()
-            ->where('type', CreditTransaction::TYPE_ADMIN_RECHARGE)
-            ->sum('credits');
-
-        $soldCredits = (int) CreditTransaction::query()
-            ->where('type', CreditTransaction::TYPE_USER_PURCHASE)
-            ->sum('credits');
-
-        return $adminCredits - $soldCredits;
     }
 
     private function serializeCreditTransaction(CreditTransaction $transaction, bool $includeUser = false): array

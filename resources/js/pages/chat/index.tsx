@@ -518,6 +518,7 @@ export default function ChatIndex({
                                         </Button>
                                     </div>
                                     <InputError message={errors.message} />
+                                    <InputError message={errors.credits} />
 
                                     {processing && (
                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">

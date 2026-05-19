@@ -52,10 +52,13 @@ type Props = {
         rates: {
             credits_per_usd: number;
             bdt_per_credit: number;
+            chat_message_cost: number;
+            video_generation_cost: number;
         };
         user: {
             balance: number;
             purchased: number;
+            used: number;
             spent_bdt: number;
             recent: CreditTransaction[];
         };
@@ -77,7 +80,7 @@ type Props = {
         aiStudio: string;
         cloudBilling: string;
         pricing: string;
-    };
+    } | null;
 };
 
 function money(value: number | null) {
@@ -133,7 +136,7 @@ export default function UsageIndex({
                     </p>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-3">
                     <div className="rounded-lg border bg-card p-4">
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Banknote className="size-4" />
@@ -143,23 +146,27 @@ export default function UsageIndex({
                             {number(credits.user.balance)}
                         </div>
                         <p className="mt-1 text-sm text-muted-foreground">
-                            {taka(credits.rates.bdt_per_credit)} buys 1 credit.
+                            Chat costs {number(credits.rates.chat_message_cost)}{' '}
+                            credit. Video costs{' '}
+                            {number(credits.rates.video_generation_cost)}.
                         </p>
                     </div>
 
-                    <div className="rounded-lg border bg-card p-4">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Landmark className="size-4" />
-                            Website pool
+                    {credits.is_admin ? (
+                        <div className="rounded-lg border bg-card p-4">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Landmark className="size-4" />
+                                Website pool
+                            </div>
+                            <div className="mt-3 text-2xl font-semibold">
+                                {number(credits.site.available)}
+                            </div>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                $1 admin recharge ={' '}
+                                {number(credits.rates.credits_per_usd)} credits.
+                            </p>
                         </div>
-                        <div className="mt-3 text-2xl font-semibold">
-                            {number(credits.site.available)}
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            $1 admin recharge ={' '}
-                            {number(credits.rates.credits_per_usd)} credits.
-                        </p>
-                    </div>
+                    ) : null}
 
                     <div className="rounded-lg border bg-card p-4">
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -257,6 +264,14 @@ export default function UsageIndex({
                                 </div>
                                 <div className="font-semibold">
                                     {number(credits.user.purchased)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-muted-foreground">
+                                    Used
+                                </div>
+                                <div className="font-semibold">
+                                    {number(credits.user.used)}
                                 </div>
                             </div>
                             <div>
@@ -553,39 +568,48 @@ export default function UsageIndex({
                             </div>
                         ) : null}
 
-                        <div className="rounded-lg border bg-card p-4">
-                            <h2 className="font-medium">
-                                Exact Google balance
-                            </h2>
-                            <p className="mt-2 text-sm text-muted-foreground">
-                                Google does not expose a simple Gemini wallet
-                                balance to this app by default. Use these links
-                                for official remaining credits and invoices.
-                            </p>
-                            <div className="mt-4 flex flex-col gap-2">
-                                <Button variant="outline" asChild>
-                                    <a href={links.aiStudio} target="_blank">
-                                        Google AI Studio
-                                        <ArrowUpRight />
-                                    </a>
-                                </Button>
-                                <Button variant="outline" asChild>
-                                    <a
-                                        href={links.cloudBilling}
-                                        target="_blank"
-                                    >
-                                        Google Cloud Billing
-                                        <ArrowUpRight />
-                                    </a>
-                                </Button>
-                                <Button variant="outline" asChild>
-                                    <a href={links.pricing} target="_blank">
-                                        Gemini pricing
-                                        <ArrowUpRight />
-                                    </a>
-                                </Button>
+                        {credits.is_admin ? (
+                            <div className="rounded-lg border bg-card p-4">
+                                <h2 className="font-medium">
+                                    Exact Google balance
+                                </h2>
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                    Google does not expose a simple Gemini
+                                    wallet balance to this app by default. Use
+                                    these links for official remaining credits
+                                    and invoices.
+                                </p>
+                                <div className="mt-4 flex flex-col gap-2">
+                                    <Button variant="outline" asChild>
+                                        <a
+                                            href={links?.aiStudio}
+                                            target="_blank"
+                                        >
+                                            Google AI Studio
+                                            <ArrowUpRight />
+                                        </a>
+                                    </Button>
+                                    <Button variant="outline" asChild>
+                                        <a
+                                            href={links?.cloudBilling}
+                                            target="_blank"
+                                        >
+                                            Google Cloud Billing
+                                            <ArrowUpRight />
+                                        </a>
+                                    </Button>
+                                    <Button variant="outline" asChild>
+                                        <a
+                                            href={links?.pricing}
+                                            target="_blank"
+                                        >
+                                            Gemini pricing
+                                            <ArrowUpRight />
+                                        </a>
+                                    </Button>
+                                </div>
                             </div>
-                        </div>
+                        ) : null}
                     </div>
                 </div>
             </div>

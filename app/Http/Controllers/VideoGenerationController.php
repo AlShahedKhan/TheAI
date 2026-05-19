@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\GenerateVeoVideo;
+use App\Models\CreditTransaction;
 use App\Models\User;
 use App\Models\VideoGeneration;
+use App\Services\CreditLedger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -54,6 +56,12 @@ class VideoGenerationController extends Controller
         /** @var User $user */
         $user = $request->user();
 
+        if (app(CreditLedger::class)->userBalance($user) < CreditTransaction::VIDEO_GENERATION_COST) {
+            return back()->withErrors([
+                'credits' => 'You need at least 100 credits to generate a video. Please buy credits from the Usage page.',
+            ]);
+        }
+
         $generation = VideoGeneration::create([
             'user_id' => $user->id,
             'model' => $validated['model'],
@@ -62,6 +70,13 @@ class VideoGenerationController extends Controller
             'resolution' => $validated['resolution'],
             'status' => 'pending',
         ]);
+
+        app(CreditLedger::class)->spend(
+            $user,
+            CreditTransaction::VIDEO_GENERATION_COST,
+            CreditTransaction::TYPE_VIDEO_USAGE,
+            'Video generation',
+        );
 
         GenerateVeoVideo::dispatch($generation->id);
 

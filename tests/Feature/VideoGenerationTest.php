@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\GenerateVeoVideo;
+use App\Models\CreditTransaction;
 use App\Models\User;
 use App\Models\VideoGeneration;
 use App\Services\VeoVideoClient;
@@ -50,6 +51,7 @@ class VideoGenerationTest extends TestCase
         Bus::fake();
 
         $user = User::factory()->create();
+        $this->grantCredits($user, 100);
 
         $response = $this
             ->actingAs($user)
@@ -76,6 +78,31 @@ class VideoGenerationTest extends TestCase
             GenerateVeoVideo::class,
             fn (GenerateVeoVideo $job) => $job->videoGenerationId === $generation->id,
         );
+        $this->assertDatabaseHas('credit_transactions', [
+            'user_id' => $user->id,
+            'type' => CreditTransaction::TYPE_VIDEO_USAGE,
+            'credits' => 100,
+        ]);
+    }
+
+    public function test_video_generation_requires_credits(): void
+    {
+        Bus::fake();
+
+        $user = User::factory()->create();
+
+        $this
+            ->actingAs($user)
+            ->post(route('videos.store'), [
+                'model' => 'veo-3.1-fast-generate-preview',
+                'prompt' => 'A bright city skyline',
+                'aspect_ratio' => '16:9',
+                'resolution' => '720p',
+            ])
+            ->assertSessionHasErrors('credits');
+
+        $this->assertDatabaseCount('video_generations', 0);
+        Bus::assertNothingDispatched();
     }
 
     public function test_video_generation_validates_options(): void
@@ -141,5 +168,18 @@ class VideoGenerationTest extends TestCase
         $this->assertSame('videos/veo-'.$generation->id.'.mp4', $generation->video_path);
         Storage::disk('public')->assertExists($generation->video_path);
         $this->assertSame('fake-video-bytes', Storage::disk('public')->get($generation->video_path));
+    }
+
+    private function grantCredits(User $user, int $credits): void
+    {
+        CreditTransaction::create([
+            'user_id' => $user->id,
+            'created_by' => $user->id,
+            'type' => CreditTransaction::TYPE_USER_PURCHASE,
+            'credits' => $credits,
+            'amount' => $credits,
+            'currency' => 'BDT',
+            'meta' => ['mode' => 'test'],
+        ]);
     }
 }

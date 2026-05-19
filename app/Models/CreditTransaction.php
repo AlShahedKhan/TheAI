@@ -16,9 +16,17 @@ class CreditTransaction extends Model
 
     public const TYPE_USER_PURCHASE = 'user_purchase';
 
+    public const TYPE_CHAT_USAGE = 'chat_usage';
+
+    public const TYPE_VIDEO_USAGE = 'video_usage';
+
     public const CREDITS_PER_USD = 150;
 
     public const BDT_PER_CREDIT = 1;
+
+    public const CHAT_MESSAGE_COST = 1;
+
+    public const VIDEO_GENERATION_COST = 100;
 
     /**
      * Get the attributes that should be cast.

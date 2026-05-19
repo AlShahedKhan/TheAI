@@ -155,6 +155,7 @@ export default function VideosIndex({
                                             required
                                         />
                                         <InputError message={errors.prompt} />
+                                        <InputError message={errors.credits} />
                                     </div>
 
                                     <Button

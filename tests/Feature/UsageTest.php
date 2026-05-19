@@ -68,6 +68,9 @@ class UsageTest extends TestCase
                 ->where('credits.site.available', 0)
                 ->where('credits.rates.credits_per_usd', 150)
                 ->where('credits.rates.bdt_per_credit', 1)
+                ->where('credits.rates.chat_message_cost', 1)
+                ->where('credits.rates.video_generation_cost', 100)
+                ->where('links', null)
                 ->where('budget.configured', true)
                 ->where('budget.amount', 10)
                 ->where('budget.remaining', 9.5)
@@ -153,7 +156,32 @@ class UsageTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('credits.user.balance', 100)
                 ->where('credits.user.spent_bdt', 100)
-                ->where('credits.site.available', 50)
+                ->where('credits.site.available', 0)
+                ->where('links', null)
+            );
+    }
+
+    public function test_admin_can_see_website_pool_and_google_links(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+
+        CreditTransaction::create([
+            'created_by' => $admin->id,
+            'type' => CreditTransaction::TYPE_ADMIN_RECHARGE,
+            'credits' => 150,
+            'amount' => 1,
+            'currency' => 'USD',
+            'meta' => ['mode' => 'test'],
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('usage.index'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('credits.site.available', 150)
+                ->where('links.aiStudio', 'https://aistudio.google.com/')
+                ->where('links.cloudBilling', 'https://console.cloud.google.com/billing')
+                ->where('links.pricing', 'https://ai.google.dev/pricing')
             );
     }
 

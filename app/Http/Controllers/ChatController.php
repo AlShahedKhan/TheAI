@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Ai\Agents\GeminiAgent;
 use App\Jobs\GenerateConversationTitle;
 use App\Models\AgentConversation;
+use App\Models\CreditTransaction;
 use App\Models\History;
 use App\Models\User;
+use App\Services\CreditLedger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -105,7 +107,20 @@ class ChatController extends Controller
         /** @var User $user */
         $user = $request->user();
         $isNewConversation = empty($validated['conversation_id']);
-        $conversation = $this->conversationFor($user, $validated['message'], $validated['model'], $validated['conversation_id'] ?? null);
+
+        if (! $isNewConversation) {
+            $conversation = $this->conversationFor($user, $validated['message'], $validated['model'], $validated['conversation_id']);
+        } else {
+            $conversation = null;
+        }
+
+        if (app(CreditLedger::class)->userBalance($user) < CreditTransaction::CHAT_MESSAGE_COST) {
+            return back()->withErrors([
+                'credits' => 'You need at least 1 credit to send a chat message. Please buy credits from the Usage page.',
+            ]);
+        }
+
+        $conversation ??= $this->conversationFor($user, $validated['message'], $validated['model'], null);
 
         if ($isNewConversation) {
             GenerateConversationTitle::dispatchAfterResponse(
@@ -129,7 +144,16 @@ class ChatController extends Controller
             'meta' => '{}',
         ]);
 
-        $this->createAssistantMessage($user, $conversation, $validated['message']);
+        $assistantMessage = $this->createAssistantMessage($user, $conversation, $validated['message']);
+
+        if (! $this->assistantMessageIsError($assistantMessage)) {
+            app(CreditLedger::class)->spend(
+                $user,
+                CreditTransaction::CHAT_MESSAGE_COST,
+                CreditTransaction::TYPE_CHAT_USAGE,
+                'Chat message',
+            );
+        }
 
         $conversation->touch();
 
@@ -153,6 +177,12 @@ class ChatController extends Controller
             'model' => ['required', 'string', Rule::in($this->allowedModels())],
         ]);
 
+        if (app(CreditLedger::class)->userBalance($user) < CreditTransaction::CHAT_MESSAGE_COST) {
+            return back()->withErrors([
+                'credits' => 'You need at least 1 credit to regenerate a chat response. Please buy credits from the Usage page.',
+            ]);
+        }
+
         $prompt = History::query()
             ->where('user_id', $user->id)
             ->where('conversation_id', $conversation->id)
@@ -163,7 +193,16 @@ class ChatController extends Controller
 
         $conversation->update(['model' => $validated['model']]);
 
-        $this->createAssistantMessage($user, $conversation, $prompt->content);
+        $assistantMessage = $this->createAssistantMessage($user, $conversation, $prompt->content);
+
+        if (! $this->assistantMessageIsError($assistantMessage)) {
+            app(CreditLedger::class)->spend(
+                $user,
+                CreditTransaction::CHAT_MESSAGE_COST,
+                CreditTransaction::TYPE_CHAT_USAGE,
+                'Chat regeneration',
+            );
+        }
 
         $conversation->touch();
 
@@ -238,6 +277,11 @@ class ChatController extends Controller
             $exception instanceof ProviderOverloadedException => 'Gemini is overloaded right now. Please try again in a moment or switch to a faster model.',
             default => 'Gemini could not complete this request right now. Please try again, or switch models if the problem continues.',
         };
+    }
+
+    private function assistantMessageIsError(History $message): bool
+    {
+        return (bool) data_get(json_decode($message->meta, true), 'error');
     }
 
     private function modelOptions(): array
