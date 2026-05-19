@@ -26,16 +26,27 @@ class AdminUserSeeder extends Seeder
             return;
         }
 
-        $user = User::updateOrCreate(
-            ['email' => $email],
-            [
-                'name' => config('admin.user.name', 'Admin User'),
-                'workos_id' => config('admin.user.workos_id') ?: 'seeded-admin-'.Str::lower(Str::slug($email)),
-                'email_verified_at' => now(),
-                'avatar' => '',
-                'is_admin' => true,
-            ],
-        );
+        $workosId = config('admin.user.workos_id');
+        $user = User::where('email', $email)->first();
+
+        if (! $user && ! $workosId && ! app()->environment(['local', 'testing'])) {
+            $this->command?->warn('Skipping admin user seed because ADMIN_USER_WORKOS_ID is required when creating an admin outside local/testing.');
+
+            return;
+        }
+
+        $attributes = [
+            'name' => config('admin.user.name', 'Admin User'),
+            'email_verified_at' => now(),
+            'avatar' => $user?->avatar ?? '',
+            'is_admin' => true,
+        ];
+
+        if ($workosId || ! $user) {
+            $attributes['workos_id'] = $workosId ?: 'seeded-admin-'.Str::lower(Str::slug($email));
+        }
+
+        $user = User::updateOrCreate(['email' => $email], $attributes);
 
         if (! $user->personalTeam()) {
             app(CreateTeam::class)->handle($user, $user->name."'s Team", isPersonal: true);

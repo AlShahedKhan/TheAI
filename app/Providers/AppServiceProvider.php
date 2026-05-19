@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Support\WorkOs\CurlRequestClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use WorkOS\Client as WorkOsClient;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -32,6 +34,14 @@ class AppServiceProvider extends ServiceProvider
     protected function configureDefaults(): void
     {
         Date::use(CarbonImmutable::class);
+
+        WorkOsClient::setRequestClient(new CurlRequestClient(
+            match (config('services.workos.curl_ip_resolve')) {
+                'v4' => CURL_IPRESOLVE_V4,
+                'v6' => CURL_IPRESOLVE_V6,
+                default => null,
+            },
+        ));
 
         DB::prohibitDestructiveCommands(
             app()->isProduction(),
