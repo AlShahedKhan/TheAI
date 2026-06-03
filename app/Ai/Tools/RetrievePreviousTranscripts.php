@@ -52,5 +52,3 @@ class RetrievePreviousTranscripts implements Tool
         ];
     }
 }
-
-// 
