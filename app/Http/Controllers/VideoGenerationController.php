@@ -7,6 +7,7 @@ use App\Models\CreditTransaction;
 use App\Models\User;
 use App\Models\VideoGeneration;
 use App\Services\CreditLedger;
+use App\Services\CreditSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -56,9 +57,36 @@ class VideoGenerationController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        if (app(CreditLedger::class)->userBalance($user) < CreditTransaction::VIDEO_GENERATION_COST) {
+        if ($user->is_suspended) {
             return back()->withErrors([
-                'credits' => 'You need at least 100 credits to generate a video. Please buy credits from the Usage page.',
+                'credits' => 'Your account is suspended. Please contact support.',
+            ]);
+        }
+
+        $settings = app(CreditSettings::class);
+        $videoCost = $settings->integer('video_generation_cost', CreditSettings::DEFAULT_VIDEO_GENERATION_COST);
+
+        if (app(CreditLedger::class)->userBalance($user) < $videoCost) {
+            return back()->withErrors([
+                'credits' => "You need at least {$videoCost} credits to generate a video. Please buy credits to continue.",
+            ]);
+        }
+
+        $dailyVideoLimit = $settings->integer('daily_video_limit', CreditSettings::DEFAULT_DAILY_VIDEO_LIMIT);
+        $videosToday = VideoGeneration::query()
+            ->where('user_id', $user->id)
+            ->whereBetween('created_at', [now()->startOfDay(), now()->endOfDay()])
+            ->count();
+
+        if ($videosToday >= $dailyVideoLimit) {
+            return back()->withErrors([
+                'credits' => "You reached today's {$dailyVideoLimit} video generation limit. Please try again tomorrow.",
+            ]);
+        }
+
+        if ($this->creditsSpentToday($user) + $videoCost > $settings->integer('daily_spend_limit', CreditSettings::DEFAULT_DAILY_SPEND_LIMIT)) {
+            return back()->withErrors([
+                'credits' => 'You reached today\'s credit spending limit. Please try again tomorrow.',
             ]);
         }
 
@@ -73,7 +101,7 @@ class VideoGenerationController extends Controller
 
         app(CreditLedger::class)->spend(
             $user,
-            CreditTransaction::VIDEO_GENERATION_COST,
+            $videoCost,
             CreditTransaction::TYPE_VIDEO_USAGE,
             'Video generation',
         );
@@ -93,5 +121,14 @@ class VideoGenerationController extends Controller
         return collect($this->modelOptions())
             ->pluck('value')
             ->all();
+    }
+
+    private function creditsSpentToday(User $user): int
+    {
+        return (int) CreditTransaction::query()
+            ->where('user_id', $user->id)
+            ->whereIn('type', [CreditTransaction::TYPE_CHAT_USAGE, CreditTransaction::TYPE_VIDEO_USAGE])
+            ->whereBetween('created_at', [now()->startOfDay(), now()->endOfDay()])
+            ->sum('credits');
     }
 }

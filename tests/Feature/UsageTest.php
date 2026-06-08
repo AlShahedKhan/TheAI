@@ -120,45 +120,18 @@ class UsageTest extends TestCase
         $this->assertDatabaseCount('credit_transactions', 0);
     }
 
-    public function test_user_can_buy_credits_from_available_website_pool(): void
+    public function test_legacy_usage_purchase_route_redirects_to_credits_page(): void
     {
-        $admin = User::factory()->create(['is_admin' => true]);
         $user = User::factory()->create();
-
-        CreditTransaction::create([
-            'created_by' => $admin->id,
-            'type' => CreditTransaction::TYPE_ADMIN_RECHARGE,
-            'credits' => 150,
-            'amount' => 1,
-            'currency' => 'USD',
-            'meta' => ['mode' => 'test'],
-        ]);
 
         $this
             ->actingAs($user)
             ->post(route('usage.credits.purchase'), [
                 'credits' => 100,
             ])
-            ->assertRedirect();
+            ->assertRedirect(route('credits.index'));
 
-        $this->assertDatabaseHas('credit_transactions', [
-            'user_id' => $user->id,
-            'created_by' => $user->id,
-            'type' => CreditTransaction::TYPE_USER_PURCHASE,
-            'credits' => 100,
-            'amount' => 100,
-            'currency' => 'BDT',
-        ]);
-
-        $this
-            ->actingAs($user)
-            ->get(route('usage.index'))
-            ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('credits.user.balance', 100)
-                ->where('credits.user.spent_bdt', 100)
-                ->where('credits.site.available', 0)
-                ->where('links', null)
-            );
+        $this->assertDatabaseCount('credit_transactions', 0);
     }
 
     public function test_admin_can_see_website_pool_and_google_links(): void
@@ -183,21 +156,5 @@ class UsageTest extends TestCase
                 ->where('links.cloudBilling', 'https://console.cloud.google.com/billing')
                 ->where('links.pricing', 'https://ai.google.dev/pricing')
             );
-    }
-
-    public function test_user_cannot_buy_more_credits_than_website_pool_has(): void
-    {
-        $user = User::factory()->create();
-
-        $this
-            ->actingAs($user)
-            ->from(route('usage.index'))
-            ->post(route('usage.credits.purchase'), [
-                'credits' => 100,
-            ])
-            ->assertRedirect(route('usage.index'))
-            ->assertSessionHasErrors('credits');
-
-        $this->assertDatabaseCount('credit_transactions', 0);
     }
 }

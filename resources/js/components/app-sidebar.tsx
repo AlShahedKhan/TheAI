@@ -1,11 +1,12 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
-    BookOpen,
     Clapperboard,
+    Coins,
     CreditCard,
-    FolderGit2,
+    FileText,
     LayoutGrid,
     MessageCircle,
+    ShieldCheck,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
@@ -29,6 +30,8 @@ export function AppSidebar() {
     const dashboardUrl = page.props.currentTeam
         ? dashboard(page.props.currentTeam.slug)
         : '/';
+    const isAdmin = Boolean(page.props.auth.user?.is_admin);
+    const creditBalance = Number(page.props.creditBalance ?? 0);
 
     const mainNavItems: NavItem[] = [
         {
@@ -51,18 +54,32 @@ export function AppSidebar() {
             href: '/usage',
             icon: CreditCard,
         },
+        {
+            title: 'Credits',
+            href: '/credits',
+            icon: Coins,
+        },
+        ...(isAdmin
+            ? [
+                  {
+                      title: 'Admin',
+                      href: '/admin',
+                      icon: ShieldCheck,
+                  },
+              ]
+            : []),
     ];
 
     const footerNavItems: NavItem[] = [
         {
-            title: 'Repository',
-            href: 'https://github.com/laravel/react-starter-kit',
-            icon: FolderGit2,
+            title: 'Terms',
+            href: '/terms',
+            icon: FileText,
         },
         {
-            title: 'Documentation',
-            href: 'https://laravel.com/docs/starter-kits#react',
-            icon: BookOpen,
+            title: 'Acceptable Use',
+            href: '/acceptable-use',
+            icon: FileText,
         },
     ];
 
@@ -90,6 +107,14 @@ export function AppSidebar() {
             </SidebarContent>
 
             <SidebarFooter>
+                <div className="mx-2 rounded-md border bg-card px-3 py-2 text-sm">
+                    <div className="text-xs text-muted-foreground">
+                        Credit balance
+                    </div>
+                    <div className="font-semibold">
+                        {new Intl.NumberFormat().format(creditBalance)}
+                    </div>
+                </div>
                 <NavFooter items={footerNavItems} className="mt-auto" />
                 <NavUser />
             </SidebarFooter>

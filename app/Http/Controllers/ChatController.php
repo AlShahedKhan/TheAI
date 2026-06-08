@@ -9,6 +9,7 @@ use App\Models\CreditTransaction;
 use App\Models\History;
 use App\Models\User;
 use App\Services\CreditLedger;
+use App\Services\CreditSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -106,6 +107,13 @@ class ChatController extends Controller
 
         /** @var User $user */
         $user = $request->user();
+
+        if ($user->is_suspended) {
+            return back()->withErrors([
+                'credits' => 'Your account is suspended. Please contact support.',
+            ]);
+        }
+
         $isNewConversation = empty($validated['conversation_id']);
 
         if (! $isNewConversation) {
@@ -114,9 +122,18 @@ class ChatController extends Controller
             $conversation = null;
         }
 
-        if (app(CreditLedger::class)->userBalance($user) < CreditTransaction::CHAT_MESSAGE_COST) {
+        $settings = app(CreditSettings::class);
+        $chatCost = $settings->integer('chat_message_cost', CreditSettings::DEFAULT_CHAT_MESSAGE_COST);
+
+        if (app(CreditLedger::class)->userBalance($user) < $chatCost) {
             return back()->withErrors([
-                'credits' => 'You need at least 1 credit to send a chat message. Please buy credits from the Usage page.',
+                'credits' => "You need at least {$chatCost} credit to send a chat message. Please buy credits to continue.",
+            ]);
+        }
+
+        if ($this->creditsSpentToday($user) + $chatCost > $settings->integer('daily_spend_limit', CreditSettings::DEFAULT_DAILY_SPEND_LIMIT)) {
+            return back()->withErrors([
+                'credits' => 'You reached today\'s credit spending limit. Please try again tomorrow.',
             ]);
         }
 
@@ -149,7 +166,7 @@ class ChatController extends Controller
         if (! $this->assistantMessageIsError($assistantMessage)) {
             app(CreditLedger::class)->spend(
                 $user,
-                CreditTransaction::CHAT_MESSAGE_COST,
+                $chatCost,
                 CreditTransaction::TYPE_CHAT_USAGE,
                 'Chat message',
             );
@@ -164,6 +181,13 @@ class ChatController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
+
+        if ($user->is_suspended) {
+            return back()->withErrors([
+                'credits' => 'Your account is suspended. Please contact support.',
+            ]);
+        }
+
         $this->authorizeConversation($conversation, $user);
 
         abort_unless(
@@ -177,9 +201,18 @@ class ChatController extends Controller
             'model' => ['required', 'string', Rule::in($this->allowedModels())],
         ]);
 
-        if (app(CreditLedger::class)->userBalance($user) < CreditTransaction::CHAT_MESSAGE_COST) {
+        $settings = app(CreditSettings::class);
+        $chatCost = $settings->integer('chat_message_cost', CreditSettings::DEFAULT_CHAT_MESSAGE_COST);
+
+        if (app(CreditLedger::class)->userBalance($user) < $chatCost) {
             return back()->withErrors([
-                'credits' => 'You need at least 1 credit to regenerate a chat response. Please buy credits from the Usage page.',
+                'credits' => "You need at least {$chatCost} credit to regenerate a chat response. Please buy credits to continue.",
+            ]);
+        }
+
+        if ($this->creditsSpentToday($user) + $chatCost > $settings->integer('daily_spend_limit', CreditSettings::DEFAULT_DAILY_SPEND_LIMIT)) {
+            return back()->withErrors([
+                'credits' => 'You reached today\'s credit spending limit. Please try again tomorrow.',
             ]);
         }
 
@@ -198,7 +231,7 @@ class ChatController extends Controller
         if (! $this->assistantMessageIsError($assistantMessage)) {
             app(CreditLedger::class)->spend(
                 $user,
-                CreditTransaction::CHAT_MESSAGE_COST,
+                $chatCost,
                 CreditTransaction::TYPE_CHAT_USAGE,
                 'Chat regeneration',
             );
@@ -330,5 +363,14 @@ class ChatController extends Controller
     private function authorizeConversation(AgentConversation $conversation, User $user): void
     {
         abort_unless((int) $conversation->user_id === $user->id, 404);
+    }
+
+    private function creditsSpentToday(User $user): int
+    {
+        return (int) CreditTransaction::query()
+            ->where('user_id', $user->id)
+            ->whereIn('type', [CreditTransaction::TYPE_CHAT_USAGE, CreditTransaction::TYPE_VIDEO_USAGE])
+            ->whereBetween('created_at', [now()->startOfDay(), now()->endOfDay()])
+            ->sum('credits');
     }
 }

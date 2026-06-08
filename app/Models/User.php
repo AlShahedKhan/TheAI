@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'workos_id', 'avatar', 'current_team_id', 'is_admin'])]
+#[Fillable(['name', 'email', 'workos_id', 'avatar', 'current_team_id', 'is_admin', 'is_suspended'])]
 #[Hidden(['workos_id', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -30,11 +30,22 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
+            'is_suspended' => 'boolean',
         ];
     }
 
     public function creditTransactions(): HasMany
     {
         return $this->hasMany(CreditTransaction::class);
+    }
+
+    public function creditPurchaseRequests(): HasMany
+    {
+        return $this->hasMany(CreditPurchaseRequest::class);
+    }
+
+    public function creditAdjustments(): HasMany
+    {
+        return $this->hasMany(CreditAdjustment::class);
     }
 }

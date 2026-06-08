@@ -20,6 +20,8 @@ class CreditTransaction extends Model
 
     public const TYPE_VIDEO_USAGE = 'video_usage';
 
+    public const TYPE_ADMIN_ADJUSTMENT = 'admin_adjustment';
+
     public const CREDITS_PER_USD = 150;
 
     public const BDT_PER_CREDIT = 1;

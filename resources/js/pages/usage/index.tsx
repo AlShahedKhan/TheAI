@@ -1,4 +1,4 @@
-import { Head, useForm } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import {
     ArrowUpRight,
     Banknote,
@@ -8,8 +8,6 @@ import {
     Video,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 type ModelUsage = {
     model: string;
@@ -118,11 +116,6 @@ export default function UsageIndex({
     budget,
     links,
 }: Props) {
-    const purchaseForm = useForm({ credits: 100 });
-    const rechargeForm = useForm({ amount_usd: 1 });
-    const purchaseCredits = Number(purchaseForm.data.credits || 0);
-    const rechargeUsd = Number(rechargeForm.data.amount_usd || 0);
-
     return (
         <>
             <Head title="Usage" />
@@ -131,8 +124,8 @@ export default function UsageIndex({
                 <div>
                     <h1 className="text-lg font-semibold">Usage & Billing</h1>
                     <p className="text-sm text-muted-foreground">
-                        Credit balance, dummy purchases, and estimated Google AI
-                        usage for this month.
+                        Credit balance and estimated Google AI usage for this
+                        month.
                     </p>
                 </div>
 
@@ -204,52 +197,13 @@ export default function UsageIndex({
                             <CreditCard className="size-4" />
                             Buy credits
                         </div>
-                        <form
-                            className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]"
-                            onSubmit={(event) => {
-                                event.preventDefault();
-                                purchaseForm.post('/usage/credits/purchase', {
-                                    preserveScroll: true,
-                                });
-                            }}
-                        >
-                            <div className="grid gap-2">
-                                <Label htmlFor="credits">Credits</Label>
-                                <Input
-                                    id="credits"
-                                    min={1}
-                                    step={1}
-                                    type="number"
-                                    value={purchaseForm.data.credits}
-                                    onChange={(event) =>
-                                        purchaseForm.setData(
-                                            'credits',
-                                            Number(event.target.value),
-                                        )
-                                    }
-                                />
-                                {purchaseForm.errors.credits ? (
-                                    <p className="text-sm text-destructive">
-                                        {purchaseForm.errors.credits}
-                                    </p>
-                                ) : (
-                                    <p className="text-sm text-muted-foreground">
-                                        {number(purchaseCredits)} credits costs{' '}
-                                        {taka(
-                                            purchaseCredits *
-                                                credits.rates.bdt_per_credit,
-                                        )}
-                                        .
-                                    </p>
-                                )}
-                            </div>
-                            <Button
-                                className="self-end"
-                                disabled={purchaseForm.processing}
-                            >
-                                Buy dummy credits
-                            </Button>
-                        </form>
+                        <p className="mt-3 text-sm text-muted-foreground">
+                            Manual bKash/Nagad payments are submitted from the
+                            dedicated Credits page and require admin approval.
+                        </p>
+                        <Button className="mt-4" asChild>
+                            <Link href="/credits">Go to Credits</Link>
+                        </Button>
                     </div>
 
                     <div className="rounded-lg border bg-card p-4">
@@ -291,60 +245,15 @@ export default function UsageIndex({
                         <div className="rounded-lg border bg-card p-4">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Landmark className="size-4" />
-                                Admin recharge
+                                Admin operations
                             </div>
-                            <form
-                                className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]"
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    rechargeForm.post(
-                                        '/usage/credits/recharge',
-                                        {
-                                            preserveScroll: true,
-                                        },
-                                    );
-                                }}
-                            >
-                                <div className="grid gap-2">
-                                    <Label htmlFor="amount_usd">
-                                        Google AI Studio amount
-                                    </Label>
-                                    <Input
-                                        id="amount_usd"
-                                        min={0.01}
-                                        step={0.01}
-                                        type="number"
-                                        value={rechargeForm.data.amount_usd}
-                                        onChange={(event) =>
-                                            rechargeForm.setData(
-                                                'amount_usd',
-                                                Number(event.target.value),
-                                            )
-                                        }
-                                    />
-                                    {rechargeForm.errors.amount_usd ? (
-                                        <p className="text-sm text-destructive">
-                                            {rechargeForm.errors.amount_usd}
-                                        </p>
-                                    ) : (
-                                        <p className="text-sm text-muted-foreground">
-                                            {money(rechargeUsd)} adds{' '}
-                                            {number(
-                                                rechargeUsd *
-                                                    credits.rates
-                                                        .credits_per_usd,
-                                            )}{' '}
-                                            website credits.
-                                        </p>
-                                    )}
-                                </div>
-                                <Button
-                                    className="self-end"
-                                    disabled={rechargeForm.processing}
-                                >
-                                    Add dummy recharge
-                                </Button>
-                            </form>
+                            <p className="mt-3 text-sm text-muted-foreground">
+                                Recharge the website pool, review payments, and
+                                manage users from the Admin Dashboard.
+                            </p>
+                            <Button className="mt-4" asChild>
+                                <Link href="/admin">Open Admin</Link>
+                            </Button>
                         </div>
 
                         <div className="rounded-lg border bg-card p-4">

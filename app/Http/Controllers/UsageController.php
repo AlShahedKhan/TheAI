@@ -7,6 +7,7 @@ use App\Models\History;
 use App\Models\User;
 use App\Models\VideoGeneration;
 use App\Services\CreditLedger;
+use App\Services\CreditSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -46,24 +47,11 @@ class UsageController extends Controller
         ]);
     }
 
-    public function purchaseCredits(Request $request, CreditLedger $credits): RedirectResponse
+    public function purchaseCredits(): RedirectResponse
     {
-        /** @var User $user */
-        $user = $request->user();
-
-        $validated = $request->validate([
-            'credits' => ['required', 'integer', 'min:1', 'max:100000'],
-        ]);
-
-        $creditAmount = (int) $validated['credits'];
-
-        if (! $credits->purchase($user, $creditAmount)) {
-            return back()->withErrors([
-                'credits' => 'The website does not have enough available credits. Please ask the admin to recharge first.',
-            ]);
-        }
-
-        return back()->with('success', "{$creditAmount} credits added to your account.");
+        return redirect()
+            ->route('credits.index')
+            ->with('success', 'Submit a manual payment request to buy credits. Admin approval is required before credits are added.');
     }
 
     public function rechargeCredits(Request $request, CreditLedger $credits): RedirectResponse
@@ -153,6 +141,7 @@ class UsageController extends Controller
     private function creditSummary(User $user): array
     {
         $ledger = app(CreditLedger::class);
+        $settings = app(CreditSettings::class);
         $adminCredits = $ledger->siteRechargedCredits();
         $soldCredits = $ledger->siteSoldCredits();
         $userPurchasedCredits = $ledger->userPurchasedCredits($user);
@@ -162,9 +151,9 @@ class UsageController extends Controller
             'is_admin' => $user->is_admin,
             'rates' => [
                 'credits_per_usd' => CreditTransaction::CREDITS_PER_USD,
-                'bdt_per_credit' => CreditTransaction::BDT_PER_CREDIT,
-                'chat_message_cost' => CreditTransaction::CHAT_MESSAGE_COST,
-                'video_generation_cost' => CreditTransaction::VIDEO_GENERATION_COST,
+                'bdt_per_credit' => $settings->integer('bdt_per_credit', CreditSettings::DEFAULT_BDT_PER_CREDIT),
+                'chat_message_cost' => $settings->integer('chat_message_cost', CreditSettings::DEFAULT_CHAT_MESSAGE_COST),
+                'video_generation_cost' => $settings->integer('video_generation_cost', CreditSettings::DEFAULT_VIDEO_GENERATION_COST),
             ],
             'user' => [
                 'balance' => $userPurchasedCredits - $userSpentCredits,

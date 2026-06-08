@@ -8,6 +8,7 @@ declare module '@inertiajs/core' {
             auth: Auth;
             sidebarOpen: boolean;
             currentTeam: Team | null;
+            creditBalance: number;
             teams: Team[];
             [key: string]: unknown;
         };
