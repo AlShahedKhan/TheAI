@@ -245,5 +245,3 @@ class AdminController extends Controller
         return round($chatCost, 6);
     }
 }
-
-// 
